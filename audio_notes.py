@@ -19,9 +19,14 @@ log = logging.getLogger("audio")
 SAMPLE_RATE = 44100
 
 
-def decode_song(path):
-    """Décode n'importe quel format audio en PCM stéréo 16 bits / 44,1 kHz."""
+def decode_song(path, max_seconds=180):
+    """Décode n'importe quel format audio en PCM stéréo 16 bits / 44,1 kHz.
+
+    max_seconds borne la mémoire : la balle ne joue de toute façon que
+    quelques dizaines de secondes de musique par vidéo.
+    """
     cmd = [get_ffmpeg_exe(), "-v", "error", "-i", path,
+           "-t", str(max_seconds),
            "-f", "s16le", "-acodec", "pcm_s16le",
            "-ac", "2", "-ar", str(SAMPLE_RATE), "-"]
     raw = subprocess.run(cmd, capture_output=True, check=True).stdout
