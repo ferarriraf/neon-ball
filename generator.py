@@ -68,8 +68,11 @@ def generate_video(config, out_dir):
          "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
          "-c:v", "libx264",
          "-preset", video_cfg.get("encoder_preset", "veryfast"), "-crf", "20",
+         # Sans limite, x264 lance un thread par cœur de la machine HÔTE :
+         # sur un petit conteneur ça explose la RAM et ffmpeg se fait tuer.
+         "-threads", str(video_cfg.get("encoder_threads", 2)),
          "-pix_fmt", "yuv420p", raw_video],
-        stdin=subprocess.PIPE,
+        stdin=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
     sim = Simulation(width, height, ring_count, random.Random())
@@ -83,20 +86,27 @@ def generate_video(config, out_dir):
              duration, width, height, fps, total_frames)
     progress_step = max(1, total_frames // 10)
     try:
-        for frame in range(total_frames):
-            t = frame / fps
-            for sub in range(PHYSICS_SUBSTEPS):
-                events.extend(sim.step(dt, t + sub * dt))
-            sim.render(surface, t)
-            encoder.stdin.write(pygame.image.tostring(surface, "RGB"))
-            if frame and frame % progress_step == 0:
-                elapsed = time.time() - started
-                log.info("Rendu %d%% (%.0fs écoulées, ~%.0fs restantes)",
-                         100 * frame // total_frames, elapsed,
-                         elapsed * (total_frames - frame) / frame)
-        encoder.stdin.close()
+        try:
+            for frame in range(total_frames):
+                t = frame / fps
+                for sub in range(PHYSICS_SUBSTEPS):
+                    events.extend(sim.step(dt, t + sub * dt))
+                sim.render(surface, t)
+                encoder.stdin.write(pygame.image.tostring(surface, "RGB"))
+                if frame and frame % progress_step == 0:
+                    elapsed = time.time() - started
+                    log.info("Rendu %d%% (%.0fs écoulées, ~%.0fs restantes)",
+                             100 * frame // total_frames, elapsed,
+                             elapsed * (total_frames - frame) / frame)
+            encoder.stdin.close()
+        except (BrokenPipeError, OSError):
+            stderr = encoder.stderr.read().decode(errors="replace")[-400:]
+            raise RuntimeError(
+                "L'encodeur vidéo s'est arrêté en plein rendu (RAM insuffisante ? "
+                f"réduis width/height/fps dans config.json). ffmpeg : {stderr or 'tué sans message'}")
         if encoder.wait() != 0:
-            raise RuntimeError("ffmpeg a échoué pendant l'encodage vidéo")
+            stderr = encoder.stderr.read().decode(errors="replace")[-400:]
+            raise RuntimeError(f"ffmpeg a échoué pendant l'encodage : {stderr}")
 
         log.info("%d notes jouées, construction de la bande-son...", len(events))
         # Import et décodage seulement après le rendu : sur les petits

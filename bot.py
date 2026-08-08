@@ -288,7 +288,15 @@ def main():
             run_cycle(config, tiktok, state, notifier)
         except Exception as exc:
             log.error("Cycle en échec : %s", exc)
-            notifier.send("❌ Cycle en échec", str(exc), RED)
+            notifier.send("❌ Cycle en échec",
+                          f"{exc}\nNouvelle tentative dans 3 minutes...", RED)
+            time.sleep(180)
+            try:
+                run_cycle(config, tiktok, state, notifier)
+            except Exception as exc2:
+                log.error("Deuxième échec : %s", exc2)
+                notifier.send("❌ Deuxième échec",
+                              f"{exc2}\nOn attend le prochain créneau.", RED)
         state["last_slot"] = base.isoformat()
         save_state(state)
 
