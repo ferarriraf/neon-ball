@@ -30,12 +30,17 @@ class TikTokError(Exception):
 
 class TikTokClient:
     def __init__(self, client_key, client_secret, refresh_token,
-                 token_store_path="tokens.json", privacy_level="SELF_ONLY"):
+                 token_store_path="tokens.json", privacy_level="SELF_ONLY",
+                 post_mode="direct"):
         self.client_key = client_key
         self.client_secret = client_secret
         self.initial_refresh_token = refresh_token
         self.token_store_path = token_store_path
         self.privacy_level = privacy_level
+        # "direct" (scope video.publish) : publication automatique complète.
+        # "inbox" (scope video.upload) : la vidéo arrive dans la boîte de
+        # réception TikTok et doit être validée manuellement dans l'appli.
+        self.post_mode = post_mode
         self._tokens = self._load_tokens()
 
     # ------------------------------------------------------------------ OAuth
@@ -101,10 +106,18 @@ class TikTokClient:
         video_size = os.path.getsize(video_path)
         chunk_size, total_chunk_count = self._chunk_plan(video_size)
 
-        resp = requests.post(
-            f"{API_BASE}/post/publish/video/init/",
-            headers=self._auth_headers(),
-            json={
+        source_info = {
+            "source": "FILE_UPLOAD",
+            "video_size": video_size,
+            "chunk_size": chunk_size,
+            "total_chunk_count": total_chunk_count,
+        }
+        if self.post_mode == "inbox":
+            endpoint = f"{API_BASE}/post/publish/inbox/video/init/"
+            payload = {"source_info": source_info}
+        else:
+            endpoint = f"{API_BASE}/post/publish/video/init/"
+            payload = {
                 "post_info": {
                     "title": title,
                     "privacy_level": self.privacy_level,
@@ -112,15 +125,11 @@ class TikTokClient:
                     "disable_comment": False,
                     "disable_stitch": False,
                 },
-                "source_info": {
-                    "source": "FILE_UPLOAD",
-                    "video_size": video_size,
-                    "chunk_size": chunk_size,
-                    "total_chunk_count": total_chunk_count,
-                },
-            },
-            timeout=30,
-        )
+                "source_info": source_info,
+            }
+
+        resp = requests.post(endpoint, headers=self._auth_headers(),
+                             json=payload, timeout=30)
         data = resp.json()
         if data.get("error", {}).get("code") not in (None, "ok"):
             raise TikTokError(f"Init upload refusé : {data['error']}")
@@ -165,8 +174,8 @@ class TikTokClient:
             )
             data = resp.json().get("data", {})
             status = data.get("status")
-            if status == "PUBLISH_COMPLETE":
-                log.info("Publication TikTok terminée (%s)", publish_id)
+            if status in ("PUBLISH_COMPLETE", "SEND_TO_USER_INBOX"):
+                log.info("Publication TikTok terminée (%s, statut %s)", publish_id, status)
                 return
             if status == "FAILED":
                 raise TikTokError(f"Publication TikTok échouée : {data.get('fail_reason')}")

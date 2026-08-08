@@ -51,6 +51,7 @@ Copie `config.example.json` → `config.json` et remplis :
 | `instagram.username` | Le compte Instagram (public) à surveiller |
 | `tiktok.client_key` / `client_secret` / `refresh_token` | Identifiants de l'app TikTok |
 | `tiktok.privacy_level` | `SELF_ONLY` tant que l'app n'est pas auditée |
+| `tiktok.post_mode` | `direct` (scope `video.publish`, publication auto) ou `inbox` (scope `video.upload`, la vidéo arrive dans ta boîte de réception TikTok et tu la valides dans l'appli) |
 | `schedule.post_times` | Heures nominales des publications (`["10:00", "17:00"]`) |
 | `schedule.random_window_minutes` | Décalage aléatoire ajouté après chaque heure nominale |
 | `schedule.timezone` | Fuseau horaire des créneaux (`Europe/Paris`) |

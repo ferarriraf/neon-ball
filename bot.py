@@ -152,6 +152,7 @@ def main():
         refresh_token=tk_cfg["refresh_token"],
         token_store_path=os.environ.get("TOKENS_PATH", "tokens.json"),
         privacy_level=tk_cfg.get("privacy_level", "SELF_ONLY"),
+        post_mode=tk_cfg.get("post_mode", "direct"),
     )
     state = load_state()
     schedule = config.get("schedule", {})

@@ -16,7 +16,9 @@ import urllib.parse
 import requests
 
 API_BASE = "https://open.tiktokapis.com/v2"
-SCOPES = "user.info.basic,video.publish"
+# video.publish = publication automatique (mode "direct")
+# video.upload  = envoi dans la boîte de réception TikTok (mode "inbox")
+DEFAULT_SCOPES = "user.info.basic,video.publish"
 
 
 def ask(prompt, default=None):
@@ -35,12 +37,13 @@ def main():
     client_key = ask("Client key de ton app TikTok", tk.get("client_key"))
     client_secret = ask("Client secret", tk.get("client_secret"))
     redirect_uri = ask("Redirect URI enregistrée dans l'app", "https://localhost:8080/callback/")
+    scopes = ask("Scopes à demander (doivent être activés sur l'app)", DEFAULT_SCOPES)
 
     state = secrets.token_urlsafe(16)
     auth_url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode({
         "client_key": client_key,
         "response_type": "code",
-        "scope": SCOPES,
+        "scope": scopes,
         "redirect_uri": redirect_uri,
         "state": state,
     })

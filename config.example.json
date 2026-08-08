@@ -6,7 +6,8 @@
     "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP",
     "client_secret": "COLLE_ICI_LE_CLIENT_SECRET",
     "refresh_token": "COLLE_ICI_LE_REFRESH_TOKEN_OBTENU_AVEC_tiktok_auth.py",
-    "privacy_level": "SELF_ONLY"
+    "privacy_level": "SELF_ONLY",
+    "post_mode": "direct"
   },
   "schedule": {
     "post_times": ["10:00", "17:00"],
