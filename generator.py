@@ -103,8 +103,9 @@ def generate_video(config, out_dir):
         # serveurs, ça évite de garder numpy + le PCM en RAM pendant
         # que l'encodeur vidéo travaille.
         from audio_notes import decode_song, build_note_track, write_wav, mux
-        pcm = decode_song(song_path)
-        track = build_note_track(pcm, events, note_ms, duration)
+        start_offset = music_cfg.get("start_offset_seconds", 0)
+        pcm = decode_song(song_path, max_seconds=start_offset + 180)
+        track = build_note_track(pcm, events, note_ms, duration, start_offset)
         write_wav(wav_path, track)
         mux(raw_video, wav_path, final_path)
     finally:
