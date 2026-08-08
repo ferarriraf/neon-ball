@@ -14,6 +14,7 @@ from ballescape import Simulation
 log = logging.getLogger("generator")
 
 MUSIC_EXTENSIONS = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus")
+MIDI_EXTENSIONS = (".mid", ".midi")
 PHYSICS_SUBSTEPS = 4
 
 
@@ -21,7 +22,7 @@ def pick_song(music_dir):
     if not os.path.isdir(music_dir):
         return None
     files = [f for f in os.listdir(music_dir)
-             if f.lower().endswith(MUSIC_EXTENSIONS)]
+             if f.lower().endswith(MUSIC_EXTENSIONS + MIDI_EXTENSIONS)]
     if not files:
         return None
     return os.path.join(music_dir, random.choice(files))
@@ -45,16 +46,31 @@ def generate_video(config, out_dir):
                   music_cfg.get("dir", "musics"), "/".join(MUSIC_EXTENSIONS))
         return None
     song_name = os.path.splitext(os.path.basename(song_path))[0]
-    log.info("Musique choisie : %s", song_name)
-    # Vérifie que le fichier audio est lisible AVANT de lancer un long rendu.
-    probe = subprocess.run(
-        [get_ffmpeg_exe(), "-v", "error", "-t", "1", "-i", song_path, "-f", "null", "-"],
-        capture_output=True,
-    )
-    if probe.returncode != 0:
-        log.error("Musique illisible (%s) : %s", song_path,
-                  probe.stderr.decode(errors="replace")[:200])
-        return None
+    is_midi = song_path.lower().endswith(MIDI_EXTENSIONS)
+    log.info("Musique choisie : %s%s", song_name, " (MIDI)" if is_midi else "")
+
+    # Vérifie que le fichier est lisible AVANT de lancer un long rendu.
+    melody = None
+    if is_midi:
+        from audio_notes import load_midi_melody
+        try:
+            melody = load_midi_melody(song_path)
+        except Exception as exc:
+            log.error("Fichier MIDI illisible (%s) : %s", song_path, exc)
+            return None
+        if not melody:
+            log.error("Aucune note trouvée dans le MIDI %s", song_path)
+            return None
+        log.info("Mélodie extraite : %d notes", len(melody))
+    else:
+        probe = subprocess.run(
+            [get_ffmpeg_exe(), "-v", "error", "-t", "1", "-i", song_path, "-f", "null", "-"],
+            capture_output=True,
+        )
+        if probe.returncode != 0:
+            log.error("Musique illisible (%s) : %s", song_path,
+                      probe.stderr.decode(errors="replace")[:200])
+            return None
 
     os.makedirs(out_dir, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -112,10 +128,14 @@ def generate_video(config, out_dir):
         # Import et décodage seulement après le rendu : sur les petits
         # serveurs, ça évite de garder numpy + le PCM en RAM pendant
         # que l'encodeur vidéo travaille.
-        from audio_notes import decode_song, build_note_track, write_wav, mux
-        start_offset = music_cfg.get("start_offset_seconds", 0)
-        pcm = decode_song(song_path, max_seconds=start_offset + 180)
-        track = build_note_track(pcm, events, note_ms, duration, start_offset)
+        from audio_notes import (decode_song, build_note_track, build_midi_track,
+                                 write_wav, mux)
+        if is_midi:
+            track = build_midi_track(melody, events, note_ms, duration)
+        else:
+            start_offset = music_cfg.get("start_offset_seconds", 0)
+            pcm = decode_song(song_path, max_seconds=start_offset + 180)
+            track = build_note_track(pcm, events, note_ms, duration, start_offset)
         write_wav(wav_path, track)
         mux(raw_video, wav_path, final_path)
     finally:

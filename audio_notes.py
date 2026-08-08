@@ -72,6 +72,70 @@ def build_note_track(pcm, event_times, note_duration_ms, total_duration_s,
     return track.astype(np.int16)
 
 
+def midi_to_freq(note):
+    return 440.0 * 2 ** ((note - 69) / 12)
+
+
+def load_midi_melody(path):
+    """Extrait la mélodie d'un fichier MIDI (liste de fréquences en Hz).
+
+    Algorithme "skyline" : toutes les pistes sauf la batterie sont fusionnées
+    et, quand plusieurs notes démarrent en même temps (accord), on garde la
+    plus aiguë — c'est presque toujours la mélodie chantée/connue.
+    """
+    import mido
+    events = []
+    t = 0.0
+    for msg in mido.MidiFile(path):  # itération = temps en secondes, tempo géré
+        t += msg.time
+        if msg.type == "note_on" and msg.velocity > 0 and getattr(msg, "channel", 0) != 9:
+            events.append((t, msg.note))
+    events.sort()
+    melody = []
+    for start, pitch in events:
+        if melody and start - melody[-1][0] < 0.035:
+            if pitch > melody[-1][1]:
+                melody[-1] = (start, pitch)
+        else:
+            melody.append((start, pitch))
+    return [midi_to_freq(p) for _, p in melody]
+
+
+def synth_note(freq, duration_s):
+    """Note synthétisée façon piano électrique : attaque nette, décroissance douce."""
+    n = int(SAMPLE_RATE * duration_s)
+    t = np.arange(n) / SAMPLE_RATE
+    env = np.exp(-t * 5.0) * np.minimum(1.0, t * 300)
+    wave = (np.sin(2 * np.pi * freq * t)
+            + 0.4 * np.sin(4 * np.pi * freq * t) * np.exp(-t * 8)
+            + 0.2 * np.sin(6 * np.pi * freq * t) * np.exp(-t * 14))
+    mono = (wave * env * 0.35 * 32767).astype(np.int32)
+    return np.stack([mono, mono], axis=1)
+
+
+def build_midi_track(freqs, event_times, note_duration_ms, total_duration_s):
+    """Joue la note n de la mélodie au moment du n-ième événement."""
+    total_samples = int(SAMPLE_RATE * total_duration_s)
+    track = np.zeros((total_samples, 2), dtype=np.int32)
+    # Les notes sonnent un peu plus longtemps que la tranche audio pour
+    # laisser la décroissance respirer.
+    duration = min(0.9, max(0.35, note_duration_ms / 1000 * 1.6))
+    index = 0
+    for t in event_times:
+        start = int(t * SAMPLE_RATE)
+        if start >= total_samples:
+            break
+        if not freqs:
+            break
+        note = synth_note(freqs[index % len(freqs)], duration)
+        index += 1
+        end = min(start + len(note), total_samples)
+        track[start:end] += note[:end - start]
+
+    np.clip(track, -32768, 32767, out=track)
+    return track.astype(np.int16)
+
+
 def write_wav(path, pcm):
     with wave.open(path, "wb") as f:
         f.setnchannels(2)
