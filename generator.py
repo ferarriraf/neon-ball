@@ -20,6 +20,8 @@ PHYSICS_SUBSTEPS = 6
 
 FADE_IN = 0.8
 FADE_OUT = 1.2
+# Après la sphère finale : le temps de voir la célébration puis le fondu.
+END_TAIL = 2.4
 
 
 def _apply_fades(surface, t, duration):
@@ -60,7 +62,11 @@ def generate_video(config, out_dir, song_path=None):
     width = video_cfg.get("width", 1080)
     height = video_cfg.get("height", 1920)
     fps = video_cfg.get("fps", 60)
-    duration = video_cfg.get("duration_seconds", 68)
+    # La vidéo ne s'arrête pas à une durée fixe : elle se termine sur une
+    # sphère entièrement franchie, une fois la durée minimale dépassée.
+    min_duration = video_cfg.get("min_duration_seconds",
+                                 video_cfg.get("duration_seconds", 60))
+    max_duration = video_cfg.get("max_duration_seconds", 180)
     ring_count = video_cfg.get("rings", 10)
     note_ms = music_cfg.get("note_duration_ms", 320)
 
@@ -103,20 +109,36 @@ def generate_video(config, out_dir, song_path=None):
     wav_path = os.path.join(out_dir, f"ball-{stamp}.wav")
     final_path = os.path.join(out_dir, f"ball-{stamp}.mp4")
 
-    total_frames = duration * fps
     dt = 1.0 / (fps * PHYSICS_SUBSTEPS)
     started = time.time()
 
-    # --- 1. Physique seule : on collecte les événements sans rien dessiner.
+    # --- 1. Physique seule : on collecte les événements sans rien dessiner,
+    # jusqu'à la première sphère terminée après la durée minimale (plus un
+    # court épilogue pour laisser voir la célébration et le fondu).
     # La graine est conservée pour rejouer exactement la même partie au rendu.
     seed = random.randrange(1 << 30)
     sim = Simulation(width, height, ring_count, random.Random(seed))
     events = []
+    end_time = None
+    total_frames = int(max_duration * fps)
     for frame in range(total_frames):
         t = frame / fps
         for sub in range(PHYSICS_SUBSTEPS):
-            events.extend(sim.step(dt, t + sub * dt))
-    log.info("Simulation : %d événements", len(events))
+            new_events = sim.step(dt, t + sub * dt)
+            events.extend(new_events)
+            if end_time is None and t >= min_duration:
+                if any(kind == "complete" for _, kind in new_events):
+                    end_time = t + END_TAIL
+        if end_time is not None and t >= end_time:
+            total_frames = frame + 1
+            break
+    duration = total_frames / fps
+    spheres = sum(1 for _, kind in events if kind == "complete")
+    if end_time is None:
+        log.warning("Aucune sphère terminée après %ds : vidéo coupée à la durée "
+                    "maximale (%ds).", min_duration, max_duration)
+    log.info("Simulation : %.1fs, %d sphère(s) terminée(s), %d événements",
+             duration, spheres, len(events))
 
     # --- 2. Bande-son, puis spectre par image pour le visualiseur.
     from audio_notes import (decode_song, build_note_track, build_midi_track,
@@ -148,7 +170,7 @@ def generate_video(config, out_dir, song_path=None):
 
     sim = Simulation(width, height, ring_count, random.Random(seed))
     surface = pygame.Surface((width, height))
-    log.info("Rendu de %ds à %dx%d %dfps (%d frames)...",
+    log.info("Rendu de %.1fs à %dx%d %dfps (%d frames)...",
              duration, width, height, fps, total_frames)
     progress_step = max(1, total_frames // 10)
     try:
