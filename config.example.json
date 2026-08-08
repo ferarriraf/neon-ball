@@ -11,7 +11,8 @@
   "schedule": {
     "post_times": ["10:00", "17:00"],
     "random_window_minutes": 60,
-    "timezone": "Europe/Paris"
+    "timezone": "Europe/Paris",
+    "post_on_start": true
   },
   "music": {
     "dir": "musics",
