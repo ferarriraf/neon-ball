@@ -322,8 +322,7 @@ def main():
                   GREEN)
 
     if schedule.get("post_on_start", True):
-        log.info("Vidéo de démarrage dans 30 secondes...")
-        time.sleep(30)
+        log.info("Génération de la vidéo de démarrage...")
         try:
             run_cycle(config, tiktok, state, notifier)
         except Exception as exc:
