@@ -17,11 +17,12 @@
     "note_duration_ms": 320
   },
   "video": {
-    "width": 1080,
-    "height": 1920,
-    "fps": 60,
+    "width": 720,
+    "height": 1280,
+    "fps": 30,
     "duration_seconds": 68,
-    "rings": 10
+    "rings": 10,
+    "encoder_preset": "ultrafast"
   },
   "captions": [
     "La balle va-t-elle s'échapper ? 🔥 {song} #ballescape #satisfying #fyp",

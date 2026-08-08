@@ -9,8 +9,9 @@ officielle Content Posting**.
 - **2 publications/jour** par défaut : une vers **10h** et une vers **17h** (heure de
   Paris), chacune décalée aléatoirement dans une fenêtre de 60 min. Planifié par le bot
   lui-même : aucun cron nécessaire.
-- Vidéos verticales **1080×1920, 60 fps, ~68 s** (réglable), couleur néon différente à
-  chaque nouveau jeu d'anneaux.
+- Vidéos verticales **720×1280, 30 fps, ~68 s** par défaut (réglable — passe à
+  1080×1920/60 fps/`"encoder_preset": "veryfast"` si le serveur a ≥ 1 Go de RAM),
+  couleur néon différente à chaque nouveau jeu d'anneaux.
 - **Descriptions en rotation** : le bot alterne entre les textes de la liste `captions`
   de `config.json` (`{song}` est remplacé par le nom du fichier musique).
 
@@ -55,13 +56,17 @@ Copie `config.example.json` → `config.json` :
 3. Crée `config.json` (voir ci-dessus).
 4. Crée un dossier **`musics/`** et dépose-y tes musiques (`.mp3`, `.wav`, `.m4a`,
    `.ogg`, `.flac`) — au moins une, tu peux en rajouter à tout moment.
-5. Commande de démarrage :
+5. Commande de démarrage, selon ce que ton panel accepte :
 
 ```bash
-bash -c "pip install --no-cache-dir -U -r requirements.txt && python bot.py"
+python start.py
 ```
 
-6. Démarre le serveur.
+ou `bash start.sh`, ou si le panel gère un shell complet :
+`bash -c "pip install --no-cache-dir -U -r requirements.txt && python bot.py"`.
+
+6. Démarre le serveur. **RAM nécessaire** : ~250 Mo minimum avec les réglages par
+   défaut (720p30/ultrafast), ≥ 1 Go pour du 1080p60.
 
 ## 4. Première connexion TikTok (une fois, depuis les logs)
 

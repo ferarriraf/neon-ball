@@ -9,7 +9,6 @@ import time
 import pygame
 from imageio_ffmpeg import get_ffmpeg_exe
 
-from audio_notes import decode_song, build_note_track, write_wav, mux
 from ballescape import Simulation
 
 log = logging.getLogger("generator")
@@ -47,7 +46,15 @@ def generate_video(config, out_dir):
         return None
     song_name = os.path.splitext(os.path.basename(song_path))[0]
     log.info("Musique choisie : %s", song_name)
-    pcm = decode_song(song_path)
+    # Vérifie que le fichier audio est lisible AVANT de lancer un long rendu.
+    probe = subprocess.run(
+        [get_ffmpeg_exe(), "-v", "error", "-t", "1", "-i", song_path, "-f", "null", "-"],
+        capture_output=True,
+    )
+    if probe.returncode != 0:
+        log.error("Musique illisible (%s) : %s", song_path,
+                  probe.stderr.decode(errors="replace")[:200])
+        return None
 
     os.makedirs(out_dir, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -59,7 +66,8 @@ def generate_video(config, out_dir):
         [get_ffmpeg_exe(), "-y", "-v", "error",
          "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+         "-c:v", "libx264",
+         "-preset", video_cfg.get("encoder_preset", "veryfast"), "-crf", "20",
          "-pix_fmt", "yuv420p", raw_video],
         stdin=subprocess.PIPE,
     )
@@ -91,6 +99,11 @@ def generate_video(config, out_dir):
             raise RuntimeError("ffmpeg a échoué pendant l'encodage vidéo")
 
         log.info("%d notes jouées, construction de la bande-son...", len(events))
+        # Import et décodage seulement après le rendu : sur les petits
+        # serveurs, ça évite de garder numpy + le PCM en RAM pendant
+        # que l'encodeur vidéo travaille.
+        from audio_notes import decode_song, build_note_track, write_wav, mux
+        pcm = decode_song(song_path)
         track = build_note_track(pcm, events, note_ms, duration)
         write_wav(wav_path, track)
         mux(raw_video, wav_path, final_path)
