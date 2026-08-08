@@ -1,2 +1,3 @@
 instaloader>=4.11
 requests>=2.31
+tzdata; platform_system == "Windows"

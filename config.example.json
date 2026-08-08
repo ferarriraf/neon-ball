@@ -9,8 +9,10 @@
     "privacy_level": "SELF_ONLY"
   },
   "schedule": {
-    "check_interval_hours": 12,
-    "max_posts_per_run": 2,
+    "post_times": ["10:00", "17:00"],
+    "random_window_minutes": 60,
+    "timezone": "Europe/Paris",
+    "max_posts_per_run": 1,
     "seconds_between_posts": 120
   },
   "caption": {

@@ -4,11 +4,12 @@ Bot Python qui récupère les vidéos d'un compte Instagram **public** (sans log
 [instaloader](https://instaloader.github.io/)) et les publie sur TikTok via l'**API
 officielle Content Posting**, avec la même description/hashtags.
 
-- Vérification **2×/jour** par défaut (`check_interval_hours: 12`), planifiée par le bot
-  lui-même : aucun cron nécessaire, il suffit que le process tourne.
+- **2 publications/jour** par défaut : une vers **10h** et une vers **17h** (heure de
+  Paris), chacune décalée aléatoirement dans une fenêtre de 60 min pour ne pas poster à
+  heure fixe. Planifié par le bot lui-même : aucun cron nécessaire, il suffit que le
+  process tourne.
 - **Rattrapage de l'historique** : les vidéos sont publiées de la plus ancienne à la plus
-  récente, `max_posts_per_run` par cycle (2 par défaut, soit 4/jour), puis le bot suit les
-  nouvelles publications au fil de l'eau.
+  récente, 1 par créneau, puis le bot suit les nouvelles publications au fil de l'eau.
 - L'état est gardé dans `state.json` : aucune vidéo n'est publiée deux fois, même après
   redémarrage.
 
@@ -19,6 +20,13 @@ officielle Content Posting**, avec la même description/hashtags.
 2. Demande le scope **`video.publish`** et enregistre une **Redirect URI**
    (ex. `https://localhost:8080/callback/`).
 3. Note le **Client key** et le **Client secret**.
+
+> ℹ️ Si la liste "Add scopes" ne propose que `user.info.*` et `video.list`, c'est que le
+> produit **Content Posting API** n'a pas encore été ajouté à l'app : le scope
+> `video.publish` n'apparaît qu'après l'ajout de ce produit (section *Products* → *Add
+> products* de l'app). En attendant l'approbation de l'app, tu peux utiliser un
+> **Sandbox** (Developer Portal) en y ajoutant ton propre compte TikTok comme
+> utilisateur cible pour tester le bot.
 
 > ⚠️ Tant que ton app n'est pas **auditée** par TikTok, les vidéos publiées par l'API sont
 > forcées en **visibilité privée** (`SELF_ONLY`). C'est une limite TikTok, pas du bot.
@@ -43,8 +51,10 @@ Copie `config.example.json` → `config.json` et remplis :
 | `instagram.username` | Le compte Instagram (public) à surveiller |
 | `tiktok.client_key` / `client_secret` / `refresh_token` | Identifiants de l'app TikTok |
 | `tiktok.privacy_level` | `SELF_ONLY` tant que l'app n'est pas auditée |
-| `schedule.check_interval_hours` | Fréquence de vérification (12 = 2×/jour) |
-| `schedule.max_posts_per_run` | Nombre max de vidéos publiées par cycle |
+| `schedule.post_times` | Heures nominales des publications (`["10:00", "17:00"]`) |
+| `schedule.random_window_minutes` | Décalage aléatoire ajouté après chaque heure nominale |
+| `schedule.timezone` | Fuseau horaire des créneaux (`Europe/Paris`) |
+| `schedule.max_posts_per_run` | Nombre max de vidéos publiées par créneau (1) |
 | `caption.append_hashtags` | Texte/hashtags ajoutés à la fin de chaque description |
 
 `config.json` contient tes secrets : il est dans `.gitignore`, **ne le commit pas**.

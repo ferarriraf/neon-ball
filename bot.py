@@ -1,16 +1,21 @@
 """Bot de repost Instagram -> TikTok.
 
-Tourne en boucle : toutes les N heures (12h par défaut), il liste les vidéos
-du compte Instagram, repère celles pas encore publiées sur TikTok (état dans
-state.json) et en publie jusqu'à max_posts_per_run, de la plus ancienne à la
-plus récente — ce qui rattrape l'historique puis suit les nouveautés.
+Tourne en boucle : à chaque créneau configuré (10h et 17h par défaut, décalé
+aléatoirement dans une fenêtre pour ne pas poster à heure fixe), il liste les
+vidéos du compte Instagram, repère celles pas encore publiées sur TikTok
+(état dans state.json) et en publie jusqu'à max_posts_per_run, de la plus
+ancienne à la plus récente — ce qui rattrape l'historique puis suit les
+nouveautés.
 """
 
 import json
 import logging
 import os
+import random
 import sys
 import time
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from instagram_source import fetch_video_posts, download_video
 from tiktok_client import TikTokClient, TikTokError
@@ -63,9 +68,38 @@ def build_caption(post, caption_cfg):
     return caption
 
 
+def next_slot(schedule, now, last_slot):
+    """Prochain créneau : heure configurée + décalage aléatoire dans la fenêtre.
+
+    Retourne (base, run_at) où base est le créneau nominal (sert à ne pas
+    publier deux fois dans le même créneau après un redémarrage) et run_at
+    l'heure effective, décalée aléatoirement.
+    """
+    times = schedule.get("post_times", ["10:00", "17:00"])
+    window = schedule.get("random_window_minutes", 60)
+    bases = []
+    for day_offset in (0, 1):
+        day = now.date() + timedelta(days=day_offset)
+        for t in times:
+            hour, minute = map(int, t.split(":"))
+            bases.append(datetime(day.year, day.month, day.day, hour, minute,
+                                  tzinfo=now.tzinfo))
+    bases.sort()
+    for base in bases:
+        if last_slot and base.isoformat() <= last_slot:
+            continue
+        run_at = base + timedelta(minutes=random.uniform(0, window))
+        if run_at > now:
+            return base, run_at
+    # Tous les créneaux d'aujourd'hui et demain sont passés (impossible en
+    # pratique) : on retombe sur le dernier + 1 jour.
+    base = bases[-1] + timedelta(days=1)
+    return base, base + timedelta(minutes=random.uniform(0, window))
+
+
 def run_cycle(config, tiktok, state):
     schedule = config.get("schedule", {})
-    max_posts = schedule.get("max_posts_per_run", 2)
+    max_posts = schedule.get("max_posts_per_run", 1)
     pause = schedule.get("seconds_between_posts", 120)
     caption_cfg = config.get("caption", {})
 
@@ -120,16 +154,26 @@ def main():
         privacy_level=tk_cfg.get("privacy_level", "SELF_ONLY"),
     )
     state = load_state()
-    interval = config.get("schedule", {}).get("check_interval_hours", 12) * 3600
+    schedule = config.get("schedule", {})
+    tz = ZoneInfo(schedule.get("timezone", "Europe/Paris"))
 
-    log.info("Bot démarré : vérification toutes les %.1f heures", interval / 3600)
+    log.info("Bot démarré : créneaux %s (fenêtre aléatoire de %d min, fuseau %s)",
+             ", ".join(schedule.get("post_times", ["10:00", "17:00"])),
+             schedule.get("random_window_minutes", 60), tz.key)
     while True:
+        now = datetime.now(tz)
+        base, run_at = next_slot(schedule, now, state.get("last_slot"))
+        wait = (run_at - now).total_seconds()
+        log.info("Prochaine publication : %s (dans %.1f h)",
+                 run_at.strftime("%d/%m %H:%M"), wait / 3600)
+        if wait > 0:
+            time.sleep(wait)
         try:
             run_cycle(config, tiktok, state)
         except Exception as exc:
             log.error("Cycle en échec : %s", exc)
-        log.info("Prochain cycle dans %.1f heures", interval / 3600)
-        time.sleep(interval)
+        state["last_slot"] = base.isoformat()
+        save_state(state)
 
 
 if __name__ == "__main__":
