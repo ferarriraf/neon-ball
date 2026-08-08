@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from generator import generate_video
+from generator import generate_video, list_songs
 from notify import Notifier, GREEN, BLUE, RED, ORANGE
 from tiktok_client import TikTokClient, TikTokError
 
@@ -70,6 +70,45 @@ def save_state(state):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
     os.replace(tmp, STATE_PATH)
+
+
+def shuffle_playlist(config, state):
+    """Mélange la liste des morceaux : ordre tiré au sort à chaque démarrage.
+
+    Les morceaux passent ensuite un par un dans cet ordre — donc bien
+    espacés, sans doublon — et la liste reprend au début une fois épuisée.
+    """
+    files = list_songs(config.get("music", {}).get("dir", "musics"))
+    random.shuffle(files)
+    state["playlist"] = files
+    state["playlist_index"] = 0
+    return files
+
+
+def next_song(config, state):
+    """Chemin du prochain morceau de la playlist, ou None si le dossier est vide."""
+    music_dir = config.get("music", {}).get("dir", "musics")
+    available = set(list_songs(music_dir))
+    if not available:
+        return None, 0, 0
+    # On retire les morceaux supprimés depuis le mélange initial.
+    playlist = [f for f in state.get("playlist", []) if f in available]
+    index = state.get("playlist_index", 0)
+
+    if not playlist:
+        playlist = shuffle_playlist(config, state)
+        index = 0
+    elif index >= len(playlist):
+        # Tour terminé : on repart au début, en ajoutant les nouveaux fichiers.
+        extras = [f for f in available if f not in playlist]
+        random.shuffle(extras)
+        playlist += extras
+        index = 0
+
+    song = playlist[index]
+    state["playlist"] = playlist
+    state["playlist_index"] = index + 1
+    return os.path.join(music_dir, song), index + 1, len(playlist)
 
 
 def next_caption(config, state, song_name):
@@ -218,10 +257,18 @@ def make_discord_preview(video_path):
 
 
 def run_cycle(config, tiktok, state, notifier):
+    song_path, position, total = next_song(config, state)
+    save_state(state)
+    if song_path is None:
+        notifier.send("⚠️ Aucune musique",
+                      "Dépose au moins un fichier .mid / .mp3 dans le dossier "
+                      "musics/. Nouvel essai au prochain créneau.", ORANGE)
+        return
     notifier.send("🎬 Génération d'une vidéo...",
-                  "La publication suivra automatiquement à la fin du rendu.", BLUE)
+                  f"Morceau {position}/{total} de la playlist : "
+                  f"**{os.path.splitext(os.path.basename(song_path))[0]}**", BLUE)
     started = time.time()
-    result = generate_video(config, DOWNLOAD_DIR)
+    result = generate_video(config, DOWNLOAD_DIR, song_path)
     if result is None:
         notifier.send("⚠️ Génération impossible",
                       "Aucune musique lisible dans le dossier musics/ : "
@@ -314,10 +361,15 @@ def main():
     slots_txt = ", ".join(schedule.get("post_times", ["10:00", "17:00"]))
     log.info("Bot démarré : créneaux %s (fenêtre aléatoire de %d min, fuseau %s)",
              slots_txt, schedule.get("random_window_minutes", 60), tz.key)
+    # Nouvel ordre de passage tiré au sort à chaque démarrage.
+    playlist = shuffle_playlist(config, state)
+    save_state(state)
+    log.info("Playlist mélangée : %d morceau(x)", len(playlist))
     now = datetime.now(tz)
     _, first_run_at = next_slot(schedule, now, state.get("last_slot"))
     notifier.send("🤖 Bot en ligne",
                   f"Créneaux : {slots_txt} ({tz.key})\n"
+                  f"Playlist mélangée : {len(playlist)} morceau(x)\n"
                   f"Prochaine vidéo planifiée : {first_run_at.strftime('%d/%m vers %H:%M')}",
                   GREEN)
 

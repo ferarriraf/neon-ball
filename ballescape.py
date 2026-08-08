@@ -9,6 +9,7 @@ Rendu headless : pygame dessine sur des Surfaces mémoire (pas d'écran),
 les frames brutes sont envoyées à ffmpeg via stdin.
 """
 
+import colorsys
 import math
 import os
 import random
@@ -46,10 +47,27 @@ BOUNCE_COOLDOWN = 0.035   # deux rebonds ne peuvent pas s'enchaîner plus vite
 WALL_CLEARANCE = 2.0      # on la repose légèrement en retrait de la paroi
 
 FLASH_DURATION = 0.25
-FADE_DURATION = 0.5
 CELEBRATION_DURATION = 1.4
 PARTICLE_COUNT = 26
 TRAIL_LENGTH = 34         # positions gardées pour la traînée (sous-pas physiques)
+
+SPARK_COUNT = 9           # étincelles projetées à chaque rebond
+SPARK_LIFE = 0.45
+SPARK_GRAVITY = 1100.0
+SHARD_COUNT = 9           # morceaux d'un anneau qui explose
+SHARD_LIFE = 1.0
+HUE_SPREAD = 0.13         # écart de teinte entre le 1er et le dernier anneau
+PULSE_DECAY = 6.5         # vitesse d'extinction du flash de fond
+PULSE_INTENSITY = 0.05    # discret : le fond doit rester sombre
+SHAKE_DURATION = 0.45
+SHAKE_AMPLITUDE = 11.0
+
+
+def _hue_shift(color, delta):
+    """Décale la teinte d'une couleur RGB de `delta` (0..1)."""
+    h, s, v = colorsys.rgb_to_hsv(*(c / 255 for c in color))
+    r, g, b = colorsys.hsv_to_rgb((h + delta) % 1.0, s, v)
+    return (int(r * 255), int(g * 255), int(b * 255))
 
 
 def _ang_diff(a, b):
@@ -67,7 +85,19 @@ class Ring:
         self.gap_half = gap_half
         self.speed = speed
         self.color = color
-        self.fade = None  # temps de début de disparition
+
+
+class Shard:
+    """Morceau d'anneau projeté quand la balle franchit une couche."""
+
+    def __init__(self, a0, a1, radius, color, t, rng):
+        self.a0 = a0
+        self.a1 = a1
+        self.radius = radius
+        self.color = color
+        self.t = t
+        self.spin = rng.uniform(-2.2, 2.2)
+        self.drift = rng.uniform(40, 130)
 
 
 class Celebration:
@@ -94,15 +124,19 @@ class Simulation:
         self.rng = rng
         self.max_radius = min(width, height) / 2 - 40
         self.flashes = []  # (x, y, t)
-        self.fading = []
+        self.shards = []
+        self.sparks = []
         self.celebrations = []
         self.rings = []
         self.current = 0
         self.spheres_done = 0
         self.trail = []  # positions récentes (échantillonnées à chaque sous-pas)
         self.last_bounce_t = -1.0
+        self.pulse = 0.0        # éclat du fond, relancé à chaque note
+        self.shake_until = -1.0
         self._glow_cache = {}
         self._title_cache = None
+        self._text_cache = {}
         if not pygame.font.get_init():
             pygame.font.init()
         self._build_sprites()
@@ -132,17 +166,20 @@ class Simulation:
         self.glow_r = glow_r
 
     def _new_ring_set(self):
-        color = self.rng.choice(NEON_PALETTE)
+        base_color = self.rng.choice(NEON_PALETTE)
+        direction = self.rng.choice((-1, 1))
         base = BALL_RADIUS * 2 + 100
         spacing = (self.max_radius - base) / max(1, self.ring_count - 1)
         self.rings = []
         for i in range(self.ring_count):
+            # Dégradé de teinte du centre vers l'extérieur.
+            shift = direction * HUE_SPREAD * i / max(1, self.ring_count - 1)
             self.rings.append(Ring(
                 radius=base + i * spacing,
                 gap_center=self.rng.uniform(0, 2 * math.pi),
                 gap_half=math.radians(self.rng.uniform(22, 34)),
                 speed=self.rng.uniform(0.35, 0.95) * self.rng.choice((-1, 1)),
-                color=color,
+                color=_hue_shift(base_color, shift),
             ))
         self.current = 0
         self.trail.clear()  # la balle se téléporte au centre : pas de streak
@@ -159,11 +196,38 @@ class Simulation:
             self.vx *= factor
             self.vy *= factor
 
+    def _spawn_sparks(self, nx, ny, color, t):
+        """Gerbe d'étincelles projetée depuis le point d'impact."""
+        base = math.atan2(-ny, -nx)  # vers l'intérieur de l'anneau
+        for _ in range(SPARK_COUNT):
+            angle = base + self.rng.uniform(-1.1, 1.1)
+            speed = self.rng.uniform(120, 420)
+            self.sparks.append([
+                self.bx, self.by,
+                math.cos(angle) * speed, math.sin(angle) * speed,
+                t, color,
+            ])
+
+    def _shatter(self, ring, t):
+        """Découpe l'anneau franchi en morceaux qui partent en tournoyant."""
+        start = ring.gap_center + ring.gap_half
+        span = 2 * math.pi - 2 * ring.gap_half
+        for i in range(SHARD_COUNT):
+            a0 = start + span * i / SHARD_COUNT
+            a1 = start + span * (i + 0.82) / SHARD_COUNT
+            self.shards.append(Shard(a0, a1, ring.radius, ring.color, t, self.rng))
+
     def step(self, dt, t):
         """Avance la physique de dt ; retourne une liste de (temps, type)."""
         events = []
         for ring in self.rings:
             ring.gap_center += ring.speed * dt
+
+        self.pulse = max(0.0, self.pulse - PULSE_DECAY * dt)
+        for spark in self.sparks:
+            spark[3] += SPARK_GRAVITY * dt
+            spark[0] += spark[2] * dt
+            spark[1] += spark[3] * dt
 
         self.vy += GRAVITY * dt
         self._clamp_speed()
@@ -181,8 +245,7 @@ class Simulation:
             if in_gap:
                 if dist - BALL_RADIUS > ring.radius:
                     # Évasion de la couche courante : petit boost de récompense.
-                    ring.fade = t
-                    self.fading.append(ring)
+                    self._shatter(ring, t)
                     self.current += 1
                     self.vx *= ESCAPE_BOOST
                     self.vy *= ESCAPE_BOOST
@@ -195,6 +258,7 @@ class Simulation:
                         self.celebrations.append(
                             Celebration(t, self.rings[-1].radius,
                                         self.rings[-1].color, self.rng))
+                        self.shake_until = t + SHAKE_DURATION
                         events.append((t, "complete"))
                         self._new_ring_set()
             else:
@@ -226,6 +290,8 @@ class Simulation:
                     self.last_bounce_t = t
                     events.append((t, "bounce"))
                     self.flashes.append((self.bx, self.by, t))
+                    self._spawn_sparks(nx, ny, ring.color, t)
+                    self.pulse = 1.0
 
         # Traînée échantillonnée à chaque sous-pas : elle reste lisse même
         # quand la balle traverse l'écran en quelques images.
@@ -233,7 +299,8 @@ class Simulation:
         if len(self.trail) > TRAIL_LENGTH:
             del self.trail[:len(self.trail) - TRAIL_LENGTH]
 
-        self.fading = [r for r in self.fading if t - r.fade < FADE_DURATION]
+        self.shards = [s for s in self.shards if t - s.t < SHARD_LIFE]
+        self.sparks = [s for s in self.sparks if t - s[4] < SPARK_LIFE]
         self.flashes = [f for f in self.flashes if t - f[2] < FLASH_DURATION]
         self.celebrations = [c for c in self.celebrations
                              if t - c.t < CELEBRATION_DURATION]
@@ -362,15 +429,78 @@ class Simulation:
         block.set_alpha(int(255 * max(0.0, min(1.0, alpha))))
         surface.blit(block, (0, int(self.h * 0.085) + offset))
 
+    def _draw_shards(self, surface, t):
+        for shard in self.shards:
+            age = (t - shard.t) / SHARD_LIFE
+            fade = max(0.0, 1.0 - age) ** 1.5
+            radius = shard.radius + shard.drift * age
+            offset = shard.spin * age
+            n = max(4, int((shard.a1 - shard.a0) * radius / 6))
+            pts = []
+            for i in range(n + 1):
+                a = shard.a0 + offset + (shard.a1 - shard.a0) * i / n
+                pts.append((self.cx + math.cos(a) * radius,
+                            self.cy + math.sin(a) * radius))
+            pygame.draw.lines(surface, self._scaled(shard.color, 0.35 * fade),
+                              False, pts, 9)
+            pygame.draw.lines(surface, self._scaled(shard.color, fade), False, pts, 3)
+
+    def _draw_sparks(self, surface, t):
+        for x, y, _, _, born, color in self.sparks:
+            fade = max(0.0, 1.0 - (t - born) / SPARK_LIFE)
+            size = max(1, int(4 * fade))
+            pygame.draw.circle(surface, self._scaled(color, 0.5 * fade),
+                               (int(x), int(y)), size + 2)
+            pygame.draw.circle(surface, self._scaled((255, 255, 255), fade),
+                               (int(x), int(y)), size)
+
+    def _draw_counter(self, surface):
+        """Compteur discret des couches restantes."""
+        remaining = len(self.rings) - self.current
+        text = f"{remaining} / {len(self.rings)}"
+        img = self._text_cache.get(text)
+        if img is None:
+            font = pygame.font.Font(None, max(24, int(self.w * 0.052)))
+            img = font.render(text, True, (198, 206, 224))
+            self._text_cache[text] = img
+        surface.blit(img, ((self.w - img.get_width()) // 2, int(self.h * 0.855)))
+
     def render(self, surface, t):
+        if t < self.shake_until:
+            # Secousse d'écran : on dessine à part puis on décale l'image.
+            work = self._shake_surface()
+            self._draw_scene(work, t)
+            k = (self.shake_until - t) / SHAKE_DURATION
+            amp = SHAKE_AMPLITUDE * k * k
+            dx = int(self.rng.uniform(-amp, amp))
+            dy = int(self.rng.uniform(-amp, amp))
+            surface.fill((0, 0, 0))
+            surface.blit(work, (dx, dy))
+        else:
+            self._draw_scene(surface, t)
+
+    def _shake_surface(self):
+        if getattr(self, "_work", None) is None:
+            self._work = pygame.Surface((self.w, self.h))
+        return self._work
+
+    def _draw_scene(self, surface, t):
         surface.blit(self.background, (0, 0))
         ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
 
-        for ring in self.fading:
-            brightness = max(0.0, 1.0 - (t - ring.fade) / FADE_DURATION)
-            self._draw_ring(surface, ring, brightness * 0.7)
-        for ring in self.rings[self.current:]:
-            self._draw_ring(surface, ring)
+        # Pulsation lumineuse du fond, relancée à chaque note.
+        if self.pulse > 0.03:
+            if getattr(self, "_pulse_surface", None) is None:
+                self._pulse_surface = pygame.Surface((self.w, self.h))
+            self._pulse_surface.fill(
+                self._scaled(ring_color, PULSE_INTENSITY * self.pulse))
+            surface.blit(self._pulse_surface, (0, 0), special_flags=pygame.BLEND_ADD)
+
+        self._draw_shards(surface, t)
+        # L'anneau à franchir brille à fond, les suivants s'estompent :
+        # ça donne de la profondeur et guide l'œil.
+        for i, ring in enumerate(self.rings[self.current:]):
+            self._draw_ring(surface, ring, max(0.42, 1.0 - 0.13 * i))
 
         # Onde blanche à l'endroit de chaque impact.
         for fx, fy, ft in self.flashes:
@@ -396,4 +526,6 @@ class Simulation:
         pygame.draw.circle(surface, (255, 255, 255), pos, BALL_RADIUS)
         pygame.draw.circle(surface, self._scaled(ring_color, 0.55), pos, BALL_RADIUS, 2)
 
+        self._draw_sparks(surface, t)
         self._draw_celebrations(surface, t)
+        self._draw_counter(surface)
