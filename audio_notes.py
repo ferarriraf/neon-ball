@@ -18,10 +18,6 @@ log = logging.getLogger("audio")
 
 SAMPLE_RATE = 44100
 
-# Les ornements (bling d'anneau franchi, fanfare de sphère terminée) sont
-# décalés après la note de mélodie pour ne jamais masquer son attaque.
-ORNAMENT_DELAY = int(SAMPLE_RATE * 0.13)
-
 
 def decode_song(path, max_seconds=180):
     """Décode n'importe quel format audio en PCM stéréo 16 bits / 44,1 kHz.
@@ -73,17 +69,18 @@ def build_note_track(pcm, events, note_duration_ms, total_duration_s,
         start = int(t * SAMPLE_RATE)
         if start >= total_samples:
             break
+        # Seuls les rebonds consomment une tranche de musique.
+        if kind == "escape":
+            _mix(track, synth_sparkle(), start)
+            continue
         if kind == "complete":
-            # Célébration seule : aucune tranche n'est consommée.
-            _mix(track, synth_fanfare(), start + ORNAMENT_DELAY)
+            _mix(track, synth_fanfare(), start)
             continue
         if pos + note_samples > len(pcm):
             pos = offset  # la musique est épuisée : on reboucle
         note = (pcm[pos:pos + note_samples].astype(np.float32) * envelope).astype(np.int32)
         pos += note_samples
         _mix(track, note, start)
-        if kind == "escape":
-            _mix(track, synth_sparkle(), start + ORNAMENT_DELAY)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
@@ -187,18 +184,17 @@ def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
         start = int(t * SAMPLE_RATE)
         if start >= total_samples:
             break
-        if kind == "complete":
-            # Célébration seule : aucune note n'est consommée ici, la mélodie
-            # continue exactement où elle en était.
-            _mix(track, synth_fanfare(), start + ORNAMENT_DELAY)
+        # Seuls les rebonds font avancer la mélodie. Un anneau franchi ou une
+        # sphère terminée ne joue QUE son effet sonore : aucune note n'est
+        # consommée, la mélodie reprend où elle en était au rebond suivant.
+        if kind == "escape":
+            _mix(track, synth_sparkle(), start)
             continue
-        # Rebond ET franchissement jouent la note suivante : la mélodie
-        # se déroule sans jamais sauter une note.
+        if kind == "complete":
+            _mix(track, synth_fanfare(), start)
+            continue
         _mix(track, synth_note(freqs[index % len(freqs)], duration), start)
         index += 1
-        if kind == "escape":
-            # Ornement décalé pour laisser l'attaque de la note s'entendre.
-            _mix(track, synth_sparkle(), start + ORNAMENT_DELAY)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
