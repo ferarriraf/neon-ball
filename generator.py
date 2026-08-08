@@ -15,7 +15,7 @@ log = logging.getLogger("generator")
 
 MUSIC_EXTENSIONS = (".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".opus")
 MIDI_EXTENSIONS = (".mid", ".midi")
-PHYSICS_SUBSTEPS = 4
+PHYSICS_SUBSTEPS = 6
 
 
 def pick_song(music_dir):

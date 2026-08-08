@@ -38,12 +38,18 @@ TANGENT_FRICTION = 0.99   # frottement le long de la paroi
 REVIVE_SPEED = 300.0      # en dessous, la balle reçoit une impulsion
 REVIVE_BOOST = 1.5
 ESCAPE_BOOST = 1.12       # accélération de récompense en franchissant un anneau
-MAX_SPEED = 1900.0
+MAX_SPEED = 1600.0
+# Anti-blocage : la balle doit toujours repartir franchement de la paroi,
+# sinon la gravité la replaque aussitôt et elle mitraille sur place.
+MIN_SEPARATION_SPEED = 300.0
+BOUNCE_COOLDOWN = 0.035   # deux rebonds ne peuvent pas s'enchaîner plus vite
+WALL_CLEARANCE = 2.0      # on la repose légèrement en retrait de la paroi
 
 FLASH_DURATION = 0.25
 FADE_DURATION = 0.5
 CELEBRATION_DURATION = 1.4
 PARTICLE_COUNT = 26
+TRAIL_LENGTH = 34         # positions gardées pour la traînée (sous-pas physiques)
 
 
 def _ang_diff(a, b):
@@ -93,8 +99,34 @@ class Simulation:
         self.rings = []
         self.current = 0
         self.spheres_done = 0
-        self.trail = []  # dernières positions de la balle (traînée lumineuse)
+        self.trail = []  # positions récentes (échantillonnées à chaque sous-pas)
+        self.last_bounce_t = -1.0
+        self._glow_cache = {}
+        self._build_sprites()
         self._new_ring_set()
+
+    # ------------------------------------------------------- Sprites précalculés
+
+    def _build_sprites(self):
+        """Fond vignetté et halo de balle, calculés une seule fois."""
+        small = pygame.Surface((self.w // 8, self.h // 8))
+        small.fill((2, 2, 6))
+        cx, cy = small.get_width() / 2, small.get_height() / 2
+        max_r = int(math.hypot(cx, cy))
+        for r in range(max_r, 0, -3):
+            k = 1 - r / max_r
+            pygame.draw.circle(small, (int(6 + 14 * k * k), int(7 + 16 * k * k),
+                                       int(14 + 30 * k * k)),
+                               (int(cx), int(cy)), r)
+        self.background = pygame.transform.smoothscale(small, (self.w, self.h))
+
+        glow_r = BALL_RADIUS * 5
+        self.ball_glow = pygame.Surface((glow_r * 2, glow_r * 2))
+        for r in range(glow_r, 0, -1):
+            k = 1 - r / glow_r
+            v = int(255 * k ** 3)
+            pygame.draw.circle(self.ball_glow, (v, v, v), (glow_r, glow_r), r)
+        self.glow_r = glow_r
 
     def _new_ring_set(self):
         color = self.rng.choice(NEON_PALETTE)
@@ -165,15 +197,17 @@ class Simulation:
             else:
                 nx, ny = dx / dist, dy / dist
                 outward = self.vx * nx + self.vy * ny
-                if outward > 0:
+                if outward > 0 and t - self.last_bounce_t >= BOUNCE_COOLDOWN:
                     # Réflexion : composante normale inversée et amortie,
                     # composante tangentielle légèrement freinée.
                     tx, ty = -ny, nx
-                    vt = self.vx * tx + self.vy * ty
-                    vn = -outward * RESTITUTION
-                    vt *= TANGENT_FRICTION
-                    self.vx = nx * vn + tx * vt
-                    self.vy = ny * vn + ty * vt
+                    vt = (self.vx * tx + self.vy * ty) * TANGENT_FRICTION
+                    # La normale repart toujours assez fort pour décoller de la
+                    # paroi : sinon la gravité la replaque et la balle vibre
+                    # sur place au lieu de rebondir.
+                    vn = max(outward * RESTITUTION, MIN_SEPARATION_SPEED)
+                    self.vx = -nx * vn + tx * vt
+                    self.vy = -ny * vn + ty * vt
                     speed = math.hypot(self.vx, self.vy)
                     if speed < REVIVE_SPEED:
                         # La balle s'endort : coup de fouet pour relancer le jeu.
@@ -181,12 +215,20 @@ class Simulation:
                         self.vx *= factor
                         self.vy *= factor
                     self._clamp_speed()
-                    # Repositionne la balle contre la paroi.
-                    contact = ring.radius - BALL_RADIUS
+                    # Repose la balle légèrement en retrait de la paroi pour
+                    # qu'elle ne re-collisionne pas au sous-pas suivant.
+                    contact = ring.radius - BALL_RADIUS - WALL_CLEARANCE
                     self.bx = self.cx + nx * contact
                     self.by = self.cy + ny * contact
+                    self.last_bounce_t = t
                     events.append((t, "bounce"))
                     self.flashes.append((self.bx, self.by, t))
+
+        # Traînée échantillonnée à chaque sous-pas : elle reste lisse même
+        # quand la balle traverse l'écran en quelques images.
+        self.trail.append((self.bx, self.by))
+        if len(self.trail) > TRAIL_LENGTH:
+            del self.trail[:len(self.trail) - TRAIL_LENGTH]
 
         self.fading = [r for r in self.fading if t - r.fade < FADE_DURATION]
         self.flashes = [f for f in self.flashes if t - f[2] < FLASH_DURATION]
@@ -200,22 +242,33 @@ class Simulation:
     def _scaled(color, factor):
         return tuple(min(255, max(0, int(c * factor))) for c in color)
 
+    def _tinted_glow(self, color):
+        tinted = self._glow_cache.get(color)
+        if tinted is None:
+            tinted = self.ball_glow.copy()
+            tinted.fill(color, special_flags=pygame.BLEND_MULT)
+            self._glow_cache[color] = tinted
+        return tinted
+
     def _draw_ring(self, surface, ring, brightness=1.0):
         start = ring.gap_center + ring.gap_half
         end = ring.gap_center + 2 * math.pi - ring.gap_half
         span = end - start
-        n = max(16, min(360, int(span * ring.radius / 8)))
+        # Échantillonnage plus fin : les arcs paraissent lisses, pas polygonaux.
+        n = max(24, min(720, int(span * ring.radius / 4)))
         pts = []
         for i in range(n + 1):
             a = start + span * i / n
             pts.append((self.cx + math.cos(a) * ring.radius,
                         self.cy + math.sin(a) * ring.radius))
         color = ring.color
-        for factor, width in ((0.18, 15), (0.45, 8), (1.0, 4)):
+        for factor, width in ((0.13, 19), (0.28, 13), (0.55, 8), (1.0, 4)):
             pygame.draw.lines(surface, self._scaled(color, factor * brightness),
                               False, pts, width)
-        white = self._scaled((255, 255, 255), 0.85 * brightness)
-        pygame.draw.lines(surface, white, False, pts, 1)
+        # Cœur blanc lissé : c'est lui qui donne le fini "néon".
+        white = self._scaled((255, 255, 255), 0.9 * brightness)
+        pygame.draw.lines(surface, white, False, pts, 2)
+        pygame.draw.aalines(surface, white, False, pts)
 
     def _draw_celebrations(self, surface, t):
         for celeb in self.celebrations:
@@ -253,29 +306,37 @@ class Simulation:
                              special_flags=pygame.BLEND_ADD)
 
     def render(self, surface, t):
-        surface.fill((4, 4, 10))
+        surface.blit(self.background, (0, 0))
+        ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
+
         for ring in self.fading:
             brightness = max(0.0, 1.0 - (t - ring.fade) / FADE_DURATION)
             self._draw_ring(surface, ring, brightness * 0.7)
         for ring in self.rings[self.current:]:
             self._draw_ring(surface, ring)
+
+        # Onde blanche à l'endroit de chaque impact.
         for fx, fy, ft in self.flashes:
             k = 1.0 - (t - ft) / FLASH_DURATION
-            radius = int(BALL_RADIUS + 26 * (1 - k))
-            pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.6 * k),
+            radius = int(BALL_RADIUS + 30 * (1 - k))
+            pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.55 * k),
                                (int(fx), int(fy)), radius, 2)
-        # Traînée lumineuse de la couleur des anneaux actuels.
-        ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
-        self.trail.append((self.bx, self.by))
-        if len(self.trail) > 14:
-            self.trail.pop(0)
-        for i, (tx, ty) in enumerate(self.trail[:-1]):
-            k = (i + 1) / len(self.trail)
-            pygame.draw.circle(surface, self._scaled(ring_color, 0.35 * k),
-                               (int(tx), int(ty)), max(2, int(BALL_RADIUS * 0.7 * k)))
-        # Balle avec halo coloré + cœur blanc.
+
+        # Traînée : segments épais qui s'affinent, puis pointe lumineuse.
+        trail = self.trail
+        if len(trail) > 2:
+            for i in range(1, len(trail)):
+                k = i / len(trail)
+                width = max(1, int(BALL_RADIUS * 1.25 * k))
+                pygame.draw.line(surface, self._scaled(ring_color, 0.16 + 0.5 * k * k),
+                                 trail[i - 1], trail[i], width)
+
+        # Halo doux de la couleur des anneaux + cœur blanc net.
         pos = (int(self.bx), int(self.by))
-        pygame.draw.circle(surface, self._scaled(ring_color, 0.35), pos, BALL_RADIUS + 11)
-        pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.6), pos, BALL_RADIUS + 4)
+        surface.blit(self._tinted_glow(ring_color),
+                     (pos[0] - self.glow_r, pos[1] - self.glow_r),
+                     special_flags=pygame.BLEND_ADD)
         pygame.draw.circle(surface, (255, 255, 255), pos, BALL_RADIUS)
+        pygame.draw.circle(surface, self._scaled(ring_color, 0.55), pos, BALL_RADIUS, 2)
+
         self._draw_celebrations(surface, t)
