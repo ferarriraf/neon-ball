@@ -6,7 +6,8 @@
     "redirect_uri": "COLLE_ICI_LA_REDIRECT_URI_ENREGISTREE_DANS_L_APP",
     "refresh_token": "",
     "privacy_level": "SELF_ONLY",
-    "post_mode": "direct"
+    "post_mode": "direct",
+    "posting_enabled": false
   },
   "schedule": {
     "post_times": ["10:00", "17:00"],

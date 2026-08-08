@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import random
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -200,6 +201,22 @@ def next_slot(schedule, now, last_slot):
     return base, base + timedelta(minutes=random.uniform(0, window))
 
 
+def make_discord_preview(video_path):
+    """Version compressée (480p) pour passer sous la limite d'upload Discord."""
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+        out = video_path.replace(".mp4", "-discord.mp4")
+        subprocess.run(
+            [get_ffmpeg_exe(), "-y", "-v", "error", "-i", video_path,
+             "-vf", "scale=480:-2", "-c:v", "libx264", "-preset", "veryfast",
+             "-crf", "30", "-threads", "2", "-c:a", "aac", "-b:a", "96k", out],
+            check=True, capture_output=True)
+        return out
+    except Exception as exc:
+        log.warning("Compression pour Discord échouée : %s", exc)
+        return None
+
+
 def run_cycle(config, tiktok, state, notifier):
     notifier.send("🎬 Génération d'une vidéo...",
                   "La publication suivra automatiquement à la fin du rendu.", BLUE)
@@ -212,12 +229,33 @@ def run_cycle(config, tiktok, state, notifier):
                       "Nouvel essai au prochain créneau.", ORANGE)
         return
     video_path, song_name = result
+    caption = next_caption(config, state, song_name)
+
+    if not config.get("tiktok", {}).get("posting_enabled", False):
+        # Mode test : pas de publication TikTok, la vidéo part sur Discord.
+        log.info("Publication TikTok en pause : envoi de la vidéo sur Discord")
+        size_mb = os.path.getsize(video_path) / 1e6
+        info = (f"🧪 **Vidéo de test** (publication TikTok en pause)\n"
+                f"Musique : **{song_name}** — rendu en "
+                f"{(time.time() - started) / 60:.1f} min — {size_mb:.1f} Mo\n"
+                f"Description prévue : {caption}")
+        if not notifier.send_file(video_path, info):
+            preview = make_discord_preview(video_path)
+            sent = bool(preview) and notifier.send_file(
+                preview, info + "\n(version compressée : l'originale dépasse la limite Discord)")
+            if preview and os.path.exists(preview):
+                os.remove(preview)
+            if not sent:
+                notifier.send("🧪 Vidéo générée mais trop lourde pour Discord",
+                              info + f"\nRécupère-la via le gestionnaire de fichiers : {video_path}",
+                              ORANGE)
+        return  # on garde le fichier dans downloads/ jusqu'au prochain restart
+
     notifier.send("🎞️ Vidéo générée",
                   f"Musique : **{song_name}**\n"
                   f"Rendu en {(time.time() - started) / 60:.1f} min. Upload en cours...",
                   BLUE)
     try:
-        caption = next_caption(config, state, song_name)
         log.info("Upload sur TikTok (musique : %s)", song_name)
         publish_id = tiktok.upload_video(video_path, caption)
         state.setdefault("posted", {})[os.path.basename(video_path)] = {
