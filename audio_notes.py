@@ -36,9 +36,15 @@ def decode_song(path, max_seconds=180):
     return pcm
 
 
-def build_note_track(pcm, event_times, note_duration_ms, total_duration_s):
-    """Place la tranche n de la musique au moment du n-ième événement."""
+def build_note_track(pcm, event_times, note_duration_ms, total_duration_s,
+                     start_offset_s=0):
+    """Place la tranche n de la musique au moment du n-ième événement.
+
+    start_offset_s permet de sauter une intro : le découpage commence à cet
+    endroit du morceau (et y reboucle si le morceau est épuisé).
+    """
     note_samples = int(SAMPLE_RATE * note_duration_ms / 1000)
+    offset = min(int(SAMPLE_RATE * start_offset_s), max(0, len(pcm) - note_samples))
     total_samples = int(SAMPLE_RATE * total_duration_s)
     track = np.zeros((total_samples, 2), dtype=np.int32)
 
@@ -50,13 +56,13 @@ def build_note_track(pcm, event_times, note_duration_ms, total_duration_s):
     envelope[-fade_out:] = np.linspace(1, 0, fade_out)
     envelope = envelope[:, None]
 
-    pos = 0
+    pos = offset
     for t in event_times:
         start = int(t * SAMPLE_RATE)
         if start >= total_samples:
             break
         if pos + note_samples > len(pcm):
-            pos = 0  # la musique est épuisée : on reboucle au début
+            pos = offset  # la musique est épuisée : on reboucle
         note = (pcm[pos:pos + note_samples].astype(np.float32) * envelope).astype(np.int32)
         pos += note_samples
         end = min(start + len(note), total_samples)
