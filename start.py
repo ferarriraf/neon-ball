@@ -17,11 +17,28 @@ import urllib.request
 import zipfile
 
 REPO_ZIP = "https://codeload.github.com/ferarriraf/bot-scrap/zip/refs/heads/main"
+REPO_ZIP_PRIVATE = "https://api.github.com/repos/ferarriraf/bot-scrap/zipball/main"
+
+
+def github_token():
+    """Token GitHub optionnel (repo privé) : clé "github_token" de config.json."""
+    try:
+        import json
+        with open("config.json", encoding="utf-8") as f:
+            return json.load(f).get("github_token", "").strip()
+    except Exception:
+        return ""
 
 
 def update_from_github():
     try:
-        data = urllib.request.urlopen(REPO_ZIP, timeout=30).read()
+        token = github_token()
+        if token:
+            request = urllib.request.Request(
+                REPO_ZIP_PRIVATE, headers={"Authorization": "Bearer " + token})
+        else:
+            request = urllib.request.Request(REPO_ZIP)
+        data = urllib.request.urlopen(request, timeout=30).read()
         archive = zipfile.ZipFile(io.BytesIO(data))
         updated = 0
         for name in archive.namelist():
