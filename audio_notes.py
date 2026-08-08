@@ -36,10 +36,18 @@ def decode_song(path, max_seconds=180):
     return pcm
 
 
-def build_note_track(pcm, event_times, note_duration_ms, total_duration_s,
+def _mix(track, sound, start):
+    """Ajoute `sound` dans `track` à partir de l'échantillon `start`."""
+    end = min(start + len(sound), len(track))
+    if end > start:
+        track[start:end] += sound[:end - start]
+
+
+def build_note_track(pcm, events, note_duration_ms, total_duration_s,
                      start_offset_s=0):
     """Place la tranche n de la musique au moment du n-ième événement.
 
+    events : liste de (temps, type) où type vaut bounce / escape / complete.
     start_offset_s permet de sauter une intro : le découpage commence à cet
     endroit du morceau (et y reboucle si le morceau est épuisé).
     """
@@ -57,16 +65,20 @@ def build_note_track(pcm, event_times, note_duration_ms, total_duration_s,
     envelope = envelope[:, None]
 
     pos = offset
-    for t in event_times:
+    for t, kind in events:
         start = int(t * SAMPLE_RATE)
         if start >= total_samples:
             break
+        if kind == "complete":
+            _mix(track, synth_fanfare(), start)
+            continue
         if pos + note_samples > len(pcm):
             pos = offset  # la musique est épuisée : on reboucle
         note = (pcm[pos:pos + note_samples].astype(np.float32) * envelope).astype(np.int32)
         pos += note_samples
-        end = min(start + len(note), total_samples)
-        track[start:end] += note[:end - start]
+        _mix(track, note, start)
+        if kind == "escape":
+            _mix(track, synth_sparkle(), start)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
@@ -113,24 +125,66 @@ def synth_note(freq, duration_s):
     return np.stack([mono, mono], axis=1)
 
 
-def build_midi_track(freqs, event_times, note_duration_ms, total_duration_s):
-    """Joue la note n de la mélodie au moment du n-ième événement."""
+def synth_sparkle(base_freq=1046.5):
+    """Petit arpège cristallin "bling" joué en franchissant un anneau."""
+    parts = []
+    for i, ratio in enumerate((1.0, 1.26, 1.5, 2.0)):  # majeur ascendant
+        note = synth_note(base_freq * ratio, 0.5) // 3
+        pad = np.zeros((int(SAMPLE_RATE * 0.045 * i), 2), dtype=np.int32)
+        parts.append(np.concatenate([pad, note]))
+    length = max(len(p) for p in parts)
+    out = np.zeros((length, 2), dtype=np.int32)
+    for p in parts:
+        out[:len(p)] += p
+    return out
+
+
+def synth_fanfare(base_freq=523.25):
+    """Célébration : arpège majeur montant + accord final, à chaque sphère finie."""
+    parts = []
+    steps = ((1.0, 0.0), (1.26, 0.09), (1.5, 0.18), (2.0, 0.27),
+             (2.52, 0.36), (3.0, 0.45))
+    for ratio, delay in steps:
+        note = synth_note(base_freq * ratio, 1.1) // 2
+        pad = np.zeros((int(SAMPLE_RATE * delay), 2), dtype=np.int32)
+        parts.append(np.concatenate([pad, note]))
+    # Accord plaqué pour finir.
+    for ratio in (2.0, 2.52, 3.0, 4.0):
+        note = synth_note(base_freq * ratio, 1.4) // 3
+        pad = np.zeros((int(SAMPLE_RATE * 0.6), 2), dtype=np.int32)
+        parts.append(np.concatenate([pad, note]))
+    length = max(len(p) for p in parts)
+    out = np.zeros((length, 2), dtype=np.int32)
+    for p in parts:
+        out[:len(p)] += p
+    return out
+
+
+def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
+    """Joue la note n de la mélodie au moment du n-ième événement.
+
+    events : liste de (temps, type). Un franchissement d'anneau ajoute un
+    "bling" par-dessus la note, une sphère terminée déclenche la fanfare.
+    """
     total_samples = int(SAMPLE_RATE * total_duration_s)
     track = np.zeros((total_samples, 2), dtype=np.int32)
+    if not freqs:
+        return track.astype(np.int16)
     # Les notes sonnent un peu plus longtemps que la tranche audio pour
     # laisser la décroissance respirer.
     duration = min(0.9, max(0.35, note_duration_ms / 1000 * 1.6))
     index = 0
-    for t in event_times:
+    for t, kind in events:
         start = int(t * SAMPLE_RATE)
         if start >= total_samples:
             break
-        if not freqs:
-            break
-        note = synth_note(freqs[index % len(freqs)], duration)
+        if kind == "complete":
+            _mix(track, synth_fanfare(), start)
+            continue
+        _mix(track, synth_note(freqs[index % len(freqs)], duration), start)
         index += 1
-        end = min(start + len(note), total_samples)
-        track[start:end] += note[:end - start]
+        if kind == "escape":
+            _mix(track, synth_sparkle(), start)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
