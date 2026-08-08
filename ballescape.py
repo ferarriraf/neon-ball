@@ -102,6 +102,9 @@ class Simulation:
         self.trail = []  # positions récentes (échantillonnées à chaque sous-pas)
         self.last_bounce_t = -1.0
         self._glow_cache = {}
+        self._title_cache = None
+        if not pygame.font.get_init():
+            pygame.font.init()
         self._build_sprites()
         self._new_ring_set()
 
@@ -304,6 +307,60 @@ class Simulation:
                             (size, size), radius)
                 surface.blit(glow, (int(self.cx) - size, int(self.cy) - size),
                              special_flags=pygame.BLEND_ADD)
+
+    def draw_spectrum(self, surface, levels):
+        """Visualiseur audio : barres symétriques en bas de l'image."""
+        color = self.rings[min(self.current, len(self.rings) - 1)].color
+        n = len(levels)
+        margin = int(self.w * 0.08)
+        usable = self.w - 2 * margin
+        slot = usable / n
+        bar_w = max(2, int(slot * 0.55))
+        base_y = int(self.h * 0.94)
+        max_h = int(self.h * 0.075)
+        for i, level in enumerate(levels):
+            # Hauteur minimale : la ligne de base reste toujours visible.
+            h = max(4, int(max_h * float(level)))
+            x = int(margin + i * slot + (slot - bar_w) / 2)
+            pygame.draw.rect(surface, self._scaled(color, 0.30),
+                             (x - 2, base_y - h - 2, bar_w + 4, h + 4),
+                             border_radius=bar_w)
+            pygame.draw.rect(surface, self._scaled(color, 0.95),
+                             (x, base_y - h, bar_w, h), border_radius=bar_w // 2)
+            pygame.draw.rect(surface, (255, 255, 255),
+                             (x, base_y - h, bar_w, max(2, bar_w // 2)),
+                             border_radius=bar_w // 2)
+
+    def draw_title(self, surface, text, t, hold=4.0):
+        """Nom du morceau : monte en fondu, puis s'efface."""
+        appear, disappear = 0.7, 0.9
+        if t > hold + disappear:
+            return
+        if t < appear:
+            k = t / appear
+            alpha, offset = k, int(40 * (1 - k) ** 2)
+        elif t < hold:
+            alpha, offset = 1.0, 0
+        else:
+            alpha, offset = 1.0 - (t - hold) / disappear, 0
+
+        if self._title_cache is None or self._title_cache[0] != text:
+            font = pygame.font.Font(None, max(26, int(self.w * 0.058)))
+            label = text if len(text) <= 30 else text[:29] + "…"
+            # Police par défaut de pygame : ASCII uniquement, sinon les
+            # caractères manquants s'affichent en carrés.
+            self._title_cache = (text, font.render(label, True, (255, 255, 255)),
+                                 pygame.font.Font(None, max(18, int(self.w * 0.032)))
+                                 .render("BALL ESCAPE", True, (150, 162, 190)))
+        _, title_img, sub_img = self._title_cache
+
+        block = pygame.Surface((self.w, title_img.get_height() + sub_img.get_height() + 14))
+        block.set_colorkey((0, 0, 0))
+        block.blit(title_img, ((self.w - title_img.get_width()) // 2, 0))
+        block.blit(sub_img, ((self.w - sub_img.get_width()) // 2,
+                             title_img.get_height() + 12))
+        block.set_alpha(int(255 * max(0.0, min(1.0, alpha))))
+        surface.blit(block, (0, int(self.h * 0.085) + offset))
 
     def render(self, surface, t):
         surface.blit(self.background, (0, 0))
