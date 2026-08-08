@@ -44,7 +44,16 @@ def load_config():
         )
         sys.exit(1)
     with open(CONFIG_PATH, encoding="utf-8") as f:
-        return json.load(f)
+        try:
+            return json.load(f)
+        except json.JSONDecodeError as exc:
+            log.error("config.json invalide : %s (ligne %d, colonne %d).",
+                      exc.msg, exc.lineno, exc.colno)
+            log.error("Vérifie autour de cette ligne : virgule en fin de ligne "
+                      "manquante ou en trop, guillemets \" abîmés par le "
+                      "copier-coller, accolade en trop. Compare avec "
+                      "config.example.json.")
+            sys.exit(1)
 
 
 def load_state():
