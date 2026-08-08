@@ -57,8 +57,6 @@ SPARK_GRAVITY = 1100.0
 SHARD_COUNT = 9           # morceaux d'un anneau qui explose
 SHARD_LIFE = 1.0
 HUE_SPREAD = 0.13         # écart de teinte entre le 1er et le dernier anneau
-PULSE_DECAY = 6.5         # vitesse d'extinction du flash de fond
-PULSE_INTENSITY = 0.05    # discret : le fond doit rester sombre
 SHAKE_DURATION = 0.45
 SHAKE_AMPLITUDE = 11.0
 
@@ -132,7 +130,6 @@ class Simulation:
         self.spheres_done = 0
         self.trail = []  # positions récentes (échantillonnées à chaque sous-pas)
         self.last_bounce_t = -1.0
-        self.pulse = 0.0        # éclat du fond, relancé à chaque note
         self.shake_until = -1.0
         self._glow_cache = {}
         self._title_cache = None
@@ -223,7 +220,6 @@ class Simulation:
         for ring in self.rings:
             ring.gap_center += ring.speed * dt
 
-        self.pulse = max(0.0, self.pulse - PULSE_DECAY * dt)
         for spark in self.sparks:
             spark[3] += SPARK_GRAVITY * dt
             spark[0] += spark[2] * dt
@@ -291,7 +287,6 @@ class Simulation:
                     events.append((t, "bounce"))
                     self.flashes.append((self.bx, self.by, t))
                     self._spawn_sparks(nx, ny, ring.color, t)
-                    self.pulse = 1.0
 
         # Traînée échantillonnée à chaque sous-pas : elle reste lisse même
         # quand la balle traverse l'écran en quelques images.
@@ -488,25 +483,20 @@ class Simulation:
         surface.blit(self.background, (0, 0))
         ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
 
-        # Pulsation lumineuse du fond, relancée à chaque note.
-        if self.pulse > 0.03:
-            if getattr(self, "_pulse_surface", None) is None:
-                self._pulse_surface = pygame.Surface((self.w, self.h))
-            self._pulse_surface.fill(
-                self._scaled(ring_color, PULSE_INTENSITY * self.pulse))
-            surface.blit(self._pulse_surface, (0, 0), special_flags=pygame.BLEND_ADD)
-
+        # Pas de flash plein écran à chaque rebond : à deux notes par seconde,
+        # le clignotement est épuisant à regarder. Le retour visuel de l'impact
+        # reste local (onde teintée + étincelles au point de contact).
         self._draw_shards(surface, t)
         # L'anneau à franchir brille à fond, les suivants s'estompent :
         # ça donne de la profondeur et guide l'œil.
         for i, ring in enumerate(self.rings[self.current:]):
             self._draw_ring(surface, ring, max(0.42, 1.0 - 0.13 * i))
 
-        # Onde blanche à l'endroit de chaque impact.
+        # Onde d'impact : discrète, teintée, et jamais blanc pur.
         for fx, fy, ft in self.flashes:
             k = 1.0 - (t - ft) / FLASH_DURATION
             radius = int(BALL_RADIUS + 30 * (1 - k))
-            pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.55 * k),
+            pygame.draw.circle(surface, self._scaled(ring_color, 0.55 * k),
                                (int(fx), int(fy)), radius, 2)
 
         # Traînée : segments épais qui s'affinent, puis pointe lumineuse.
