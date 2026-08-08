@@ -3,9 +3,10 @@
     "username": "TON_COMPTE_INSTA"
   },
   "tiktok": {
-    "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP",
+    "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP_OU_SANDBOX",
     "client_secret": "COLLE_ICI_LE_CLIENT_SECRET",
-    "refresh_token": "COLLE_ICI_LE_REFRESH_TOKEN_OBTENU_AVEC_tiktok_auth.py",
+    "redirect_uri": "COLLE_ICI_LA_REDIRECT_URI_ENREGISTREE_DANS_L_APP",
+    "refresh_token": "",
     "privacy_level": "SELF_ONLY",
     "post_mode": "direct"
   },

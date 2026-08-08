@@ -32,15 +32,21 @@ officielle Content Posting**, avec la même description/hashtags.
 > forcées en **visibilité privée** (`SELF_ONLY`). C'est une limite TikTok, pas du bot.
 > Une fois l'app auditée, mets `"privacy_level": "PUBLIC_TO_EVERYONE"` dans `config.json`.
 
-## 2. Obtenir le refresh token (une fois, sur ton PC)
+## 2. Première connexion TikTok (100 % depuis le panel, téléphone OK)
 
-```bash
-pip install -r requirements.txt
-python tiktok_auth.py
-```
+Pas besoin de PC ni de terminal : au premier démarrage, si `refresh_token` est vide,
+le bot affiche dans les **logs du panel Pterodactyl** une URL d'autorisation.
 
-Le script t'affiche l'URL d'autorisation, tu valides avec ton compte TikTok, tu colles
-l'URL de redirection, et il écrit le `refresh_token` dans `config.json`.
+1. Ouvre cette URL dans ton navigateur et autorise ton compte TikTok.
+2. Tu es redirigé vers ta Redirect URI : **copie l'URL complète** de la barre
+   d'adresse (elle contient `?code=...`).
+3. Dans le **gestionnaire de fichiers** du panel, crée un fichier `auth_redirect.txt`,
+   colle l'URL dedans, sauvegarde.
+
+Le bot détecte le fichier en quelques secondes, échange le code, sauvegarde les tokens
+dans `tokens.json` et démarre. (Alternative sur PC : `python tiktok_auth.py`.)
+
+> Le code d'autorisation expire en quelques minutes : fais les étapes 1 à 3 d'affilée.
 
 ## 3. Configurer
 
@@ -49,7 +55,9 @@ Copie `config.example.json` → `config.json` et remplis :
 | Champ | Rôle |
 |---|---|
 | `instagram.username` | Le compte Instagram (public) à surveiller |
-| `tiktok.client_key` / `client_secret` / `refresh_token` | Identifiants de l'app TikTok |
+| `tiktok.client_key` / `client_secret` | Identifiants de l'app (ou du sandbox) TikTok |
+| `tiktok.redirect_uri` | La même Redirect URI que celle enregistrée dans l'app TikTok |
+| `tiktok.refresh_token` | Laisse vide : rempli automatiquement à la première connexion |
 | `tiktok.privacy_level` | `SELF_ONLY` tant que l'app n'est pas auditée |
 | `tiktok.post_mode` | `direct` (scope `video.publish`, publication auto) ou `inbox` (scope `video.upload`, la vidéo arrive dans ta boîte de réception TikTok et tu la valides dans l'appli) |
 | `schedule.post_times` | Heures nominales des publications (`["10:00", "17:00"]`) |

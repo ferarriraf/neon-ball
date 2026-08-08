@@ -14,8 +14,11 @@ import os
 import random
 import sys
 import time
+import urllib.parse
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+import requests
 
 from instagram_source import fetch_video_posts, download_video
 from tiktok_client import TikTokClient, TikTokError
@@ -28,7 +31,9 @@ log = logging.getLogger("bot")
 
 CONFIG_PATH = os.environ.get("CONFIG_PATH", "config.json")
 STATE_PATH = os.environ.get("STATE_PATH", "state.json")
+TOKENS_PATH = os.environ.get("TOKENS_PATH", "tokens.json")
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads")
+AUTH_REDIRECT_FILE = "auth_redirect.txt"
 
 
 def load_config():
@@ -66,6 +71,88 @@ def build_caption(post, caption_cfg):
     if len(caption) > max_length:
         caption = caption[: max_length - 1].rstrip() + "…"
     return caption
+
+
+def bootstrap_tokens(tk_cfg):
+    """Première connexion TikTok, 100 % depuis le panel Pterodactyl (pas de terminal).
+
+    Affiche l'URL d'autorisation dans les logs du serveur. L'utilisateur
+    l'ouvre dans son navigateur (téléphone ou PC), autorise son compte
+    TikTok, puis colle l'URL complète de redirection dans un fichier
+    auth_redirect.txt créé via le gestionnaire de fichiers du panel.
+    Le bot échange alors le code contre les tokens et démarre.
+    """
+    redirect_uri = tk_cfg.get("redirect_uri", "")
+    if not redirect_uri:
+        log.error("config.json : remplis tiktok.redirect_uri (la même Redirect URI "
+                  "que dans ton app/sandbox TikTok).")
+        sys.exit(1)
+    scopes = ("user.info.basic,video.upload"
+              if tk_cfg.get("post_mode", "direct") == "inbox"
+              else "user.info.basic,video.publish")
+    auth_url = "https://www.tiktok.com/v2/auth/authorize/?" + urllib.parse.urlencode({
+        "client_key": tk_cfg["client_key"],
+        "response_type": "code",
+        "scope": scopes,
+        "redirect_uri": redirect_uri,
+        "state": "bootstrap",
+    })
+
+    log.info("=" * 70)
+    log.info("PREMIÈRE CONNEXION TIKTOK NÉCESSAIRE")
+    log.info("1. Ouvre cette URL dans ton navigateur et autorise ton compte :")
+    log.info("   %s", auth_url)
+    log.info("2. Après validation tu es redirigé vers %s", redirect_uri)
+    log.info("   Copie l'URL COMPLÈTE de la barre d'adresse (elle contient ?code=...)")
+    log.info("3. Dans le gestionnaire de fichiers du panel, crée le fichier")
+    log.info("   auth_redirect.txt et colle cette URL dedans, puis sauvegarde.")
+    log.info("=" * 70)
+
+    while not os.path.exists(AUTH_REDIRECT_FILE):
+        time.sleep(10)
+    with open(AUTH_REDIRECT_FILE, encoding="utf-8") as f:
+        pasted = f.read().strip()
+
+    # Accepte l'URL complète de redirection ou juste la valeur du code.
+    if "code=" in pasted:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(pasted).query)
+        code = query.get("code", [""])[0]
+    else:
+        code = pasted
+    if not code:
+        log.error("auth_redirect.txt ne contient pas de code : supprime le fichier, "
+                  "recommence l'autorisation et colle l'URL complète.")
+        os.remove(AUTH_REDIRECT_FILE)
+        sys.exit(1)
+
+    resp = requests.post(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_key": tk_cfg["client_key"],
+            "client_secret": tk_cfg["client_secret"],
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": redirect_uri,
+        },
+        timeout=30,
+    )
+    data = resp.json()
+    os.remove(AUTH_REDIRECT_FILE)
+    if "refresh_token" not in data:
+        log.error("Échange du code refusé par TikTok : %s", data)
+        log.error("Le code n'est valable que quelques minutes : recommence "
+                  "l'autorisation (le bot va redémarrer la procédure).")
+        sys.exit(1)
+
+    with open(TOKENS_PATH, "w", encoding="utf-8") as f:
+        json.dump({
+            "refresh_token": data["refresh_token"],
+            "access_token": data["access_token"],
+            "expires_at": time.time() + data.get("expires_in", 86400),
+        }, f, indent=2)
+    log.info("✔ Connexion TikTok réussie (scopes : %s), tokens sauvegardés.",
+             data.get("scope"))
 
 
 def next_slot(schedule, now, last_slot):
@@ -141,16 +228,22 @@ def run_cycle(config, tiktok, state):
 def main():
     config = load_config()
     tk_cfg = config["tiktok"]
-    for field in ("client_key", "client_secret", "refresh_token"):
+    for field in ("client_key", "client_secret"):
         if not tk_cfg.get(field) or tk_cfg[field].startswith("COLLE_ICI"):
             log.error("config.json : le champ tiktok.%s n'est pas rempli.", field)
             sys.exit(1)
 
+    refresh_token = tk_cfg.get("refresh_token", "")
+    if refresh_token.startswith("COLLE_ICI"):
+        refresh_token = ""
+    if not refresh_token and not os.path.exists(TOKENS_PATH):
+        bootstrap_tokens(tk_cfg)
+
     tiktok = TikTokClient(
         client_key=tk_cfg["client_key"],
         client_secret=tk_cfg["client_secret"],
-        refresh_token=tk_cfg["refresh_token"],
-        token_store_path=os.environ.get("TOKENS_PATH", "tokens.json"),
+        refresh_token=refresh_token,
+        token_store_path=TOKENS_PATH,
         privacy_level=tk_cfg.get("privacy_level", "SELF_ONLY"),
         post_mode=tk_cfg.get("post_mode", "direct"),
     )
