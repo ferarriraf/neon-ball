@@ -34,18 +34,27 @@ def _apply_fades(surface, t, duration):
     surface.fill((v, v, v), special_flags=pygame.BLEND_MULT)
 
 
-def pick_song(music_dir):
+def list_songs(music_dir):
+    """Noms des morceaux disponibles, triés (ordre stable entre redémarrages)."""
     if not os.path.isdir(music_dir):
-        return None
-    files = [f for f in os.listdir(music_dir)
-             if f.lower().endswith(MUSIC_EXTENSIONS + MIDI_EXTENSIONS)]
+        return []
+    return sorted(f for f in os.listdir(music_dir)
+                  if f.lower().endswith(MUSIC_EXTENSIONS + MIDI_EXTENSIONS))
+
+
+def pick_song(music_dir):
+    files = list_songs(music_dir)
     if not files:
         return None
     return os.path.join(music_dir, random.choice(files))
 
 
-def generate_video(config, out_dir):
-    """Génère une vidéo ; retourne (chemin_mp4, nom_musique) ou None."""
+def generate_video(config, out_dir, song_path=None):
+    """Génère une vidéo ; retourne (chemin_mp4, nom_musique) ou None.
+
+    song_path impose le morceau (playlist gérée par le bot) ; sans lui, un
+    morceau est tiré au hasard.
+    """
     video_cfg = config.get("video", {})
     music_cfg = config.get("music", {})
     width = video_cfg.get("width", 1080)
@@ -55,7 +64,7 @@ def generate_video(config, out_dir):
     ring_count = video_cfg.get("rings", 10)
     note_ms = music_cfg.get("note_duration_ms", 320)
 
-    song_path = pick_song(music_cfg.get("dir", "musics"))
+    song_path = song_path or pick_song(music_cfg.get("dir", "musics"))
     if not song_path:
         log.error("Aucune musique trouvée dans le dossier '%s' : dépose des fichiers "
                   "%s via le gestionnaire de fichiers.",
