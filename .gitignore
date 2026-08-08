@@ -2,5 +2,8 @@ config.json
 tokens.json
 state.json
 downloads/
+musics/
+*.mp4
+*.wav
 __pycache__/
 *.pyc

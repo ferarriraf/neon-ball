@@ -1,11 +1,10 @@
-"""Bot de repost Instagram -> TikTok.
+"""Bot ball escape -> TikTok.
 
 Tourne en boucle : à chaque créneau configuré (10h et 17h par défaut, décalé
-aléatoirement dans une fenêtre pour ne pas poster à heure fixe), il liste les
-vidéos du compte Instagram, repère celles pas encore publiées sur TikTok
-(état dans state.json) et en publie jusqu'à max_posts_per_run, de la plus
-ancienne à la plus récente — ce qui rattrape l'historique puis suit les
-nouveautés.
+aléatoirement dans une fenêtre pour ne pas poster à heure fixe), il génère
+une vidéo "ball escape" — la balle joue la mélodie d'une musique piochée au
+hasard dans le dossier musics/ à chaque rebond — puis la publie sur TikTok
+avec une description tirée en rotation de la liste `captions` de config.json.
 """
 
 import json
@@ -20,7 +19,7 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from instagram_source import fetch_video_posts, download_video
+from generator import generate_video
 from tiktok_client import TikTokClient, TikTokError
 
 logging.basicConfig(
@@ -62,15 +61,12 @@ def save_state(state):
     os.replace(tmp, STATE_PATH)
 
 
-def build_caption(post, caption_cfg):
-    caption = post["caption"].strip()
-    extra = caption_cfg.get("append_hashtags", "").strip()
-    if extra:
-        caption = f"{caption}\n{extra}" if caption else extra
-    max_length = caption_cfg.get("max_length", 2200)
-    if len(caption) > max_length:
-        caption = caption[: max_length - 1].rstrip() + "…"
-    return caption
+def next_caption(config, state, song_name):
+    """Description suivante de la liste, en rotation, {song} remplacé."""
+    captions = config.get("captions") or ["#ballescape #satisfying #fyp"]
+    index = state.get("caption_index", 0) % len(captions)
+    state["caption_index"] = (index + 1) % len(captions)
+    return captions[index].replace("{song}", song_name)[:2200]
 
 
 def bootstrap_tokens(tk_cfg):
@@ -185,44 +181,26 @@ def next_slot(schedule, now, last_slot):
 
 
 def run_cycle(config, tiktok, state):
-    schedule = config.get("schedule", {})
-    max_posts = schedule.get("max_posts_per_run", 1)
-    pause = schedule.get("seconds_between_posts", 120)
-    caption_cfg = config.get("caption", {})
-
-    posts = fetch_video_posts(config["instagram"]["username"])
-    pending = [p for p in posts if p["shortcode"] not in state["posted"]]
-    log.info("%d vidéo(s) en attente de repost", len(pending))
-
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    published = 0
-    for post in pending[:max_posts]:
-        if published:
-            time.sleep(pause)
-        video_path = os.path.join(DOWNLOAD_DIR, f"{post['shortcode']}.mp4")
-        try:
-            log.info("Téléchargement de la vidéo Instagram %s (%s)", post["shortcode"], post["date"])
-            download_video(post["video_url"], video_path)
-            title = build_caption(post, caption_cfg)
-            log.info("Upload sur TikTok de %s", post["shortcode"])
-            publish_id = tiktok.upload_video(video_path, title)
-            state["posted"][post["shortcode"]] = {
-                "date": post["date"],
-                "publish_id": publish_id,
-                "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            }
-            save_state(state)
-            published += 1
-            log.info("Vidéo %s publiée (%d/%d ce cycle)", post["shortcode"], published, max_posts)
-        except TikTokError as exc:
-            # On s'arrête pour ce cycle : inutile d'enchaîner si TikTok refuse.
-            log.error("Erreur TikTok sur %s : %s", post["shortcode"], exc)
-            break
-        except Exception as exc:
-            log.error("Erreur sur %s : %s", post["shortcode"], exc)
-        finally:
-            if os.path.exists(video_path):
-                os.remove(video_path)
+    result = generate_video(config, DOWNLOAD_DIR)
+    if result is None:
+        return  # pas de musique disponible : on retentera au prochain créneau
+    video_path, song_name = result
+    try:
+        caption = next_caption(config, state, song_name)
+        log.info("Upload sur TikTok (musique : %s)", song_name)
+        publish_id = tiktok.upload_video(video_path, caption)
+        state.setdefault("posted", {})[os.path.basename(video_path)] = {
+            "song": song_name,
+            "publish_id": publish_id,
+            "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+        log.info("Vidéo publiée (publish_id %s)", publish_id)
+    except TikTokError as exc:
+        log.error("Erreur TikTok : %s", exc)
+    finally:
+        save_state(state)
+        if os.path.exists(video_path):
+            os.remove(video_path)
 
 
 def main():
