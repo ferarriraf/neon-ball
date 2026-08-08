@@ -18,6 +18,10 @@ log = logging.getLogger("audio")
 
 SAMPLE_RATE = 44100
 
+# Les ornements (bling d'anneau franchi, fanfare de sphère terminée) sont
+# décalés après la note de mélodie pour ne jamais masquer son attaque.
+ORNAMENT_DELAY = int(SAMPLE_RATE * 0.13)
+
 
 def decode_song(path, max_seconds=180):
     """Décode n'importe quel format audio en PCM stéréo 16 bits / 44,1 kHz.
@@ -70,7 +74,8 @@ def build_note_track(pcm, events, note_duration_ms, total_duration_s,
         if start >= total_samples:
             break
         if kind == "complete":
-            _mix(track, synth_fanfare(), start)
+            # Célébration seule : aucune tranche n'est consommée.
+            _mix(track, synth_fanfare(), start + ORNAMENT_DELAY)
             continue
         if pos + note_samples > len(pcm):
             pos = offset  # la musique est épuisée : on reboucle
@@ -78,7 +83,7 @@ def build_note_track(pcm, events, note_duration_ms, total_duration_s,
         pos += note_samples
         _mix(track, note, start)
         if kind == "escape":
-            _mix(track, synth_sparkle(), start)
+            _mix(track, synth_sparkle(), start + ORNAMENT_DELAY)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
@@ -126,10 +131,14 @@ def synth_note(freq, duration_s):
 
 
 def synth_sparkle(base_freq=1046.5):
-    """Petit arpège cristallin "bling" joué en franchissant un anneau."""
+    """Petit arpège cristallin "bling" joué en franchissant un anneau.
+
+    Volume volontairement bas : c'est un ornement par-dessus la mélodie,
+    il ne doit jamais couvrir la note en cours.
+    """
     parts = []
     for i, ratio in enumerate((1.0, 1.26, 1.5, 2.0)):  # majeur ascendant
-        note = synth_note(base_freq * ratio, 0.5) // 3
+        note = synth_note(base_freq * ratio, 0.5) // 5
         pad = np.zeros((int(SAMPLE_RATE * 0.045 * i), 2), dtype=np.int32)
         parts.append(np.concatenate([pad, note]))
     length = max(len(p) for p in parts)
@@ -145,12 +154,12 @@ def synth_fanfare(base_freq=523.25):
     steps = ((1.0, 0.0), (1.26, 0.09), (1.5, 0.18), (2.0, 0.27),
              (2.52, 0.36), (3.0, 0.45))
     for ratio, delay in steps:
-        note = synth_note(base_freq * ratio, 1.1) // 2
+        note = synth_note(base_freq * ratio, 1.1) // 3
         pad = np.zeros((int(SAMPLE_RATE * delay), 2), dtype=np.int32)
         parts.append(np.concatenate([pad, note]))
     # Accord plaqué pour finir.
     for ratio in (2.0, 2.52, 3.0, 4.0):
-        note = synth_note(base_freq * ratio, 1.4) // 3
+        note = synth_note(base_freq * ratio, 1.4) // 4
         pad = np.zeros((int(SAMPLE_RATE * 0.6), 2), dtype=np.int32)
         parts.append(np.concatenate([pad, note]))
     length = max(len(p) for p in parts)
@@ -179,12 +188,17 @@ def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
         if start >= total_samples:
             break
         if kind == "complete":
-            _mix(track, synth_fanfare(), start)
+            # Célébration seule : aucune note n'est consommée ici, la mélodie
+            # continue exactement où elle en était.
+            _mix(track, synth_fanfare(), start + ORNAMENT_DELAY)
             continue
+        # Rebond ET franchissement jouent la note suivante : la mélodie
+        # se déroule sans jamais sauter une note.
         _mix(track, synth_note(freqs[index % len(freqs)], duration), start)
         index += 1
         if kind == "escape":
-            _mix(track, synth_sparkle(), start)
+            # Ornement décalé pour laisser l'attaque de la note s'entendre.
+            _mix(track, synth_sparkle(), start + ORNAMENT_DELAY)
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
