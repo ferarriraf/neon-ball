@@ -90,7 +90,12 @@ def midi_to_freq(note):
     return 440.0 * 2 ** ((note - 69) / 12)
 
 
-MAX_CONSECUTIVE_REPEATS = 2
+# Une note répétée plus que ça EN TÊTE de morceau est un ostinato d'intro,
+# pas la mélodie : on saute cette boucle pour attaquer directement le thème.
+# Les répétitions à l'intérieur du morceau sont toujours conservées telles
+# quelles — elles font partie de la musique.
+INTRO_REPEAT_LIMIT = 4
+MAX_INTRO_TRIM_RATIO = 0.4
 
 
 def _pick_melody_channel(by_channel):
@@ -145,17 +150,22 @@ def load_midi_melody(path):
         else:
             melody.append((start, pitch))
 
-    pitches = []
-    run = 0
-    for _, pitch in melody:
-        if pitches and pitch == pitches[-1]:
+    pitches = [pitch for _, pitch in melody]
+    return [midi_to_freq(p) for p in _trim_intro_ostinato(pitches)]
+
+
+def _trim_intro_ostinato(pitches):
+    """Saute une note martelée en boucle au tout début (intro), rien d'autre."""
+    start = 0
+    limit = int(len(pitches) * MAX_INTRO_TRIM_RATIO)
+    while start < limit:
+        run = 1
+        while start + run < len(pitches) and pitches[start + run] == pitches[start]:
             run += 1
-            if run >= MAX_CONSECUTIVE_REPEATS:
-                continue
-        else:
-            run = 0
-        pitches.append(pitch)
-    return [midi_to_freq(p) for p in pitches]
+        if run <= INTRO_REPEAT_LIMIT:
+            break
+        start += run
+    return pitches[start:]
 
 
 def synth_note(freq, duration_s):
@@ -241,6 +251,42 @@ def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
 
     np.clip(track, -32768, 32767, out=track)
     return track.astype(np.int16)
+
+
+def frame_spectrum(pcm, fps, frame_count, bands=22):
+    """Spectre par image pour le visualiseur (frame_count x bands, 0..1).
+
+    Bandes espacées logarithmiquement (comme l'oreille), normalisées sur le
+    maximum du morceau, avec une décroissance douce pour éviter le
+    clignotement d'une image à l'autre.
+    """
+    mono = pcm.mean(axis=1).astype(np.float32)
+    window = 2048
+    hann = np.hanning(window).astype(np.float32)
+    edges = np.geomspace(60, 9000, bands + 1) * window / SAMPLE_RATE
+    edges = np.clip(edges.astype(int), 1, window // 2 - 1)
+
+    raw = np.zeros((frame_count, bands), dtype=np.float32)
+    for i in range(frame_count):
+        start = int(i / fps * SAMPLE_RATE)
+        seg = mono[start:start + window]
+        if len(seg) < window:
+            seg = np.pad(seg, (0, window - len(seg)))
+        mag = np.abs(np.fft.rfft(seg * hann))
+        for b in range(bands):
+            lo, hi = edges[b], max(edges[b] + 1, edges[b + 1])
+            raw[i, b] = mag[lo:hi].mean()
+
+    # Normalisation par bande : les aigus, bien plus faibles que les graves,
+    # restent visibles au lieu d'être écrasés à zéro.
+    band_peaks = np.maximum(raw.max(axis=0), 1e-6)
+    raw = np.sqrt(raw / band_peaks)  # échelle perceptuelle
+    # Lissage entre bandes voisines pour un visuel continu.
+    raw[:, 1:-1] = (raw[:, :-2] + 2 * raw[:, 1:-1] + raw[:, 2:]) / 4
+    # Attaque immédiate, retombée progressive.
+    for i in range(1, frame_count):
+        np.maximum(raw[i], raw[i - 1] * 0.82, out=raw[i])
+    return raw
 
 
 def write_wav(path, pcm):

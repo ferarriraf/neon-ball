@@ -18,6 +18,22 @@ MIDI_EXTENSIONS = (".mid", ".midi")
 PHYSICS_SUBSTEPS = 6
 
 
+FADE_IN = 0.8
+FADE_OUT = 1.2
+
+
+def _apply_fades(surface, t, duration):
+    """Fondu au noir en ouverture et en fermeture."""
+    if t < FADE_IN:
+        k = t / FADE_IN
+    elif t > duration - FADE_OUT:
+        k = max(0.0, (duration - t) / FADE_OUT)
+    else:
+        return
+    v = int(255 * k * k)  # progression douce
+    surface.fill((v, v, v), special_flags=pygame.BLEND_MULT)
+
+
 def pick_song(music_dir):
     if not os.path.isdir(music_dir):
         return None
@@ -78,6 +94,36 @@ def generate_video(config, out_dir):
     wav_path = os.path.join(out_dir, f"ball-{stamp}.wav")
     final_path = os.path.join(out_dir, f"ball-{stamp}.mp4")
 
+    total_frames = duration * fps
+    dt = 1.0 / (fps * PHYSICS_SUBSTEPS)
+    started = time.time()
+
+    # --- 1. Physique seule : on collecte les événements sans rien dessiner.
+    # La graine est conservée pour rejouer exactement la même partie au rendu.
+    seed = random.randrange(1 << 30)
+    sim = Simulation(width, height, ring_count, random.Random(seed))
+    events = []
+    for frame in range(total_frames):
+        t = frame / fps
+        for sub in range(PHYSICS_SUBSTEPS):
+            events.extend(sim.step(dt, t + sub * dt))
+    log.info("Simulation : %d événements", len(events))
+
+    # --- 2. Bande-son, puis spectre par image pour le visualiseur.
+    from audio_notes import (decode_song, build_note_track, build_midi_track,
+                             frame_spectrum, write_wav, mux)
+    if is_midi:
+        track = build_midi_track(melody, events, note_ms, duration)
+    else:
+        start_offset = music_cfg.get("start_offset_seconds", 0)
+        pcm = decode_song(song_path, max_seconds=start_offset + 180)
+        track = build_note_track(pcm, events, note_ms, duration, start_offset)
+        del pcm
+    write_wav(wav_path, track)
+    spectrum = frame_spectrum(track, fps, total_frames)
+    del track  # libère la RAM avant de lancer l'encodeur vidéo
+
+    # --- 3. Rendu de la même partie, avec spectre, titre et fondus.
     encoder = subprocess.Popen(
         [get_ffmpeg_exe(), "-y", "-v", "error",
          "-f", "rawvideo", "-pix_fmt", "rgb24",
@@ -91,13 +137,8 @@ def generate_video(config, out_dir):
         stdin=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
-    sim = Simulation(width, height, ring_count, random.Random())
+    sim = Simulation(width, height, ring_count, random.Random(seed))
     surface = pygame.Surface((width, height))
-    total_frames = duration * fps
-    dt = 1.0 / (fps * PHYSICS_SUBSTEPS)
-    events = []
-    started = time.time()
-
     log.info("Rendu de %ds à %dx%d %dfps (%d frames)...",
              duration, width, height, fps, total_frames)
     progress_step = max(1, total_frames // 10)
@@ -106,8 +147,11 @@ def generate_video(config, out_dir):
             for frame in range(total_frames):
                 t = frame / fps
                 for sub in range(PHYSICS_SUBSTEPS):
-                    events.extend(sim.step(dt, t + sub * dt))
+                    sim.step(dt, t + sub * dt)
                 sim.render(surface, t)
+                sim.draw_spectrum(surface, spectrum[frame])
+                sim.draw_title(surface, song_name, t)
+                _apply_fades(surface, t, duration)
                 encoder.stdin.write(pygame.image.tostring(surface, "RGB"))
                 if frame and frame % progress_step == 0:
                     elapsed = time.time() - started
@@ -124,19 +168,6 @@ def generate_video(config, out_dir):
             stderr = encoder.stderr.read().decode(errors="replace")[-400:]
             raise RuntimeError(f"ffmpeg a échoué pendant l'encodage : {stderr}")
 
-        log.info("%d notes jouées, construction de la bande-son...", len(events))
-        # Import et décodage seulement après le rendu : sur les petits
-        # serveurs, ça évite de garder numpy + le PCM en RAM pendant
-        # que l'encodeur vidéo travaille.
-        from audio_notes import (decode_song, build_note_track, build_midi_track,
-                                 write_wav, mux)
-        if is_midi:
-            track = build_midi_track(melody, events, note_ms, duration)
-        else:
-            start_offset = music_cfg.get("start_offset_seconds", 0)
-            pcm = decode_song(song_path, max_seconds=start_offset + 180)
-            track = build_note_track(pcm, events, note_ms, duration, start_offset)
-        write_wav(wav_path, track)
         mux(raw_video, wav_path, final_path)
     finally:
         if encoder.poll() is None:
