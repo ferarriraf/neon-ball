@@ -2,9 +2,8 @@
 
 Une balle rebondit à l'intérieur d'anneaux néon concentriques qui tournent,
 chacun percé d'une ouverture. Elle s'échappe couche par couche ; chaque
-rebond et chaque évasion est un événement horodaté qui servira à jouer la
-note suivante de la musique. Quand toutes les couches sont passées, un
-nouveau jeu d'anneaux apparaît avec une autre couleur néon.
+rebond, chaque évasion et chaque sphère terminée est un événement horodaté
+(bounce / escape / complete) qui pilotera le son et les effets visuels.
 
 Rendu headless : pygame dessine sur des Surfaces mémoire (pas d'écran),
 les frames brutes sont envoyées à ffmpeg via stdin.
@@ -28,14 +27,23 @@ NEON_PALETTE = [
     (130, 87, 255),   # violet
 ]
 
-GRAVITY = 900.0
 BALL_RADIUS = 16
-RESTITUTION = 1.0
-SPEED_GAIN = 1.015     # légère accélération à chaque rebond
-MAX_SPEED = 1500.0
-MIN_SPEED = 350.0
+
+# Physique : gravité forte + rebonds amortis = la vitesse respire vraiment
+# (la balle ralentit en montant, accélère en tombant). Un coup de fouet
+# n'est donné que si elle s'endort, et une évasion offre un petit boost.
+GRAVITY = 1500.0
+RESTITUTION = 0.94        # perte d'énergie à chaque rebond
+TANGENT_FRICTION = 0.99   # frottement le long de la paroi
+REVIVE_SPEED = 300.0      # en dessous, la balle reçoit une impulsion
+REVIVE_BOOST = 1.5
+ESCAPE_BOOST = 1.12       # accélération de récompense en franchissant un anneau
+MAX_SPEED = 1900.0
+
 FLASH_DURATION = 0.25
 FADE_DURATION = 0.5
+CELEBRATION_DURATION = 1.4
+PARTICLE_COUNT = 26
 
 
 def _ang_diff(a, b):
@@ -56,6 +64,20 @@ class Ring:
         self.fade = None  # temps de début de disparition
 
 
+class Celebration:
+    """Onde de choc + particules quand une sphère entière est terminée."""
+
+    def __init__(self, t, radius, color, rng):
+        self.t = t
+        self.radius = radius
+        self.color = color
+        self.particles = [
+            (a, rng.uniform(0.45, 1.25))
+            for a in (i * 2 * math.pi / PARTICLE_COUNT + rng.uniform(-0.1, 0.1)
+                      for i in range(PARTICLE_COUNT))
+        ]
+
+
 class Simulation:
     def __init__(self, width, height, ring_count, rng):
         self.w = width
@@ -67,8 +89,10 @@ class Simulation:
         self.max_radius = min(width, height) / 2 - 40
         self.flashes = []  # (x, y, t)
         self.fading = []
+        self.celebrations = []
         self.rings = []
         self.current = 0
+        self.spheres_done = 0
         self.trail = []  # dernières positions de la balle (traînée lumineuse)
         self._new_ring_set()
 
@@ -93,24 +117,23 @@ class Simulation:
         self.vx = math.cos(angle) * speed
         self.vy = math.sin(angle) * speed
 
-    def step(self, dt, t):
-        """Avance la physique de dt secondes ; retourne les temps des événements."""
-        events = []
-        for ring in self.rings:
-            ring.gap_center += ring.speed * dt
-
-        self.vy += GRAVITY * dt
+    def _clamp_speed(self):
         speed = math.hypot(self.vx, self.vy)
         if speed > MAX_SPEED:
             factor = MAX_SPEED / speed
             self.vx *= factor
             self.vy *= factor
+
+    def step(self, dt, t):
+        """Avance la physique de dt ; retourne une liste de (temps, type)."""
+        events = []
+        for ring in self.rings:
+            ring.gap_center += ring.speed * dt
+
+        self.vy += GRAVITY * dt
+        self._clamp_speed()
         self.bx += self.vx * dt
         self.by += self.vy * dt
-
-        if self.current >= len(self.rings):
-            self._new_ring_set()
-            return events
 
         ring = self.rings[self.current]
         dx = self.bx - self.cx
@@ -122,43 +145,60 @@ class Simulation:
             in_gap = abs(_ang_diff(ball_angle, ring.gap_center)) < ring.gap_half * 0.9
             if in_gap:
                 if dist - BALL_RADIUS > ring.radius:
-                    # Évasion de la couche courante.
+                    # Évasion de la couche courante : petit boost de récompense.
                     ring.fade = t
                     self.fading.append(ring)
                     self.current += 1
-                    events.append(t)
+                    self.vx *= ESCAPE_BOOST
+                    self.vy *= ESCAPE_BOOST
+                    self._clamp_speed()
+                    events.append((t, "escape"))
                     self.flashes.append((self.bx, self.by, t))
                     if self.current >= len(self.rings):
+                        # Sphère entière terminée : célébration puis nouveau set.
+                        self.spheres_done += 1
+                        self.celebrations.append(
+                            Celebration(t, self.rings[-1].radius,
+                                        self.rings[-1].color, self.rng))
+                        events.append((t, "complete"))
                         self._new_ring_set()
             else:
                 nx, ny = dx / dist, dy / dist
                 outward = self.vx * nx + self.vy * ny
                 if outward > 0:
-                    self.vx -= 2 * outward * nx
-                    self.vy -= 2 * outward * ny
-                    self.vx *= RESTITUTION * SPEED_GAIN
-                    self.vy *= RESTITUTION * SPEED_GAIN
+                    # Réflexion : composante normale inversée et amortie,
+                    # composante tangentielle légèrement freinée.
+                    tx, ty = -ny, nx
+                    vt = self.vx * tx + self.vy * ty
+                    vn = -outward * RESTITUTION
+                    vt *= TANGENT_FRICTION
+                    self.vx = nx * vn + tx * vt
+                    self.vy = ny * vn + ty * vt
                     speed = math.hypot(self.vx, self.vy)
-                    if speed < MIN_SPEED:
-                        factor = MIN_SPEED / speed
+                    if speed < REVIVE_SPEED:
+                        # La balle s'endort : coup de fouet pour relancer le jeu.
+                        factor = REVIVE_BOOST * REVIVE_SPEED / max(speed, 1.0)
                         self.vx *= factor
                         self.vy *= factor
+                    self._clamp_speed()
                     # Repositionne la balle contre la paroi.
                     contact = ring.radius - BALL_RADIUS
                     self.bx = self.cx + nx * contact
                     self.by = self.cy + ny * contact
-                    events.append(t)
+                    events.append((t, "bounce"))
                     self.flashes.append((self.bx, self.by, t))
 
         self.fading = [r for r in self.fading if t - r.fade < FADE_DURATION]
         self.flashes = [f for f in self.flashes if t - f[2] < FLASH_DURATION]
+        self.celebrations = [c for c in self.celebrations
+                             if t - c.t < CELEBRATION_DURATION]
         return events
 
     # ------------------------------------------------------------------ Rendu
 
     @staticmethod
     def _scaled(color, factor):
-        return tuple(min(255, int(c * factor)) for c in color)
+        return tuple(min(255, max(0, int(c * factor))) for c in color)
 
     def _draw_ring(self, surface, ring, brightness=1.0):
         start = ring.gap_center + ring.gap_half
@@ -176,6 +216,41 @@ class Simulation:
                               False, pts, width)
         white = self._scaled((255, 255, 255), 0.85 * brightness)
         pygame.draw.lines(surface, white, False, pts, 1)
+
+    def _draw_celebrations(self, surface, t):
+        for celeb in self.celebrations:
+            k = (t - celeb.t) / CELEBRATION_DURATION  # 0 → 1
+            fade = max(0.0, 1.0 - k)
+            # Onde de choc : deux anneaux qui s'élargissent et s'estompent.
+            for delay, width in ((0.0, 6), (0.18, 3)):
+                kk = k - delay
+                if 0 <= kk <= 1:
+                    radius = int(celeb.radius * (0.55 + 0.75 * kk))
+                    pygame.draw.circle(surface, self._scaled(celeb.color, 1.0 - kk),
+                                       (int(self.cx), int(self.cy)), radius, width)
+            # Éclats projetés depuis le centre.
+            for angle, speed in celeb.particles:
+                d = celeb.radius * 0.35 + celeb.radius * 1.1 * speed * k
+                px = self.cx + math.cos(angle) * d
+                py = self.cy + math.sin(angle) * d
+                size = max(1, int(7 * fade))
+                pygame.draw.circle(surface, self._scaled(celeb.color, fade),
+                                   (int(px), int(py)), size)
+                pygame.draw.circle(surface, self._scaled((255, 255, 255), fade * 0.8),
+                                   (int(px), int(py)), max(1, size // 2))
+            # Éclat lumineux au centre (local : le fond reste noir).
+            if k < 0.3:
+                burst = 1.0 - k / 0.3
+                size = int(self.max_radius * 0.9)
+                glow = pygame.Surface((size * 2, size * 2))
+                for layer in range(5):
+                    radius = int(size * (1 - layer / 6) * burst)
+                    if radius > 0:
+                        pygame.draw.circle(
+                            glow, self._scaled(celeb.color, 0.10 * burst),
+                            (size, size), radius)
+                surface.blit(glow, (int(self.cx) - size, int(self.cy) - size),
+                             special_flags=pygame.BLEND_ADD)
 
     def render(self, surface, t):
         surface.fill((4, 4, 10))
@@ -203,3 +278,4 @@ class Simulation:
         pygame.draw.circle(surface, self._scaled(ring_color, 0.35), pos, BALL_RADIUS + 11)
         pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.6), pos, BALL_RADIUS + 4)
         pygame.draw.circle(surface, (255, 255, 255), pos, BALL_RADIUS)
+        self._draw_celebrations(surface, t)
