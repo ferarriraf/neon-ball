@@ -90,12 +90,35 @@ def midi_to_freq(note):
     return 440.0 * 2 ** ((note - 69) / 12)
 
 
+MAX_CONSECUTIVE_REPEATS = 2
+
+
+def _pick_melody_channel(by_channel):
+    """Choisit le canal qui porte la mélodie.
+
+    Un accompagnement martèle souvent la même note (ostinato d'intro) : on
+    privilégie donc le canal à la fois aigu et varié, sinon la balle joue
+    l'accompagnement et la mélodie connue n'arrive jamais.
+    """
+    best_score, best_channel = None, None
+    for channel, notes in by_channel.items():
+        if len(notes) < 8 and len(by_channel) > 1:
+            continue
+        pitches = [p for _, p in notes]
+        variety = len(set(pitches)) / len(pitches)
+        score = sum(pitches) / len(pitches) + 40 * variety
+        if best_score is None or score > best_score:
+            best_score, best_channel = score, channel
+    return best_channel
+
+
 def load_midi_melody(path):
     """Extrait la mélodie d'un fichier MIDI (liste de fréquences en Hz).
 
-    Algorithme "skyline" : toutes les pistes sauf la batterie sont fusionnées
-    et, quand plusieurs notes démarrent en même temps (accord), on garde la
-    plus aiguë — c'est presque toujours la mélodie chantée/connue.
+    1. On isole le canal le plus mélodique (hors batterie).
+    2. Skyline : sur un accord, on garde la note la plus aiguë.
+    3. On limite les répétitions d'une même note à la suite, pour ne pas
+       gaspiller de longues secondes sur une note tenue ou martelée.
     """
     import mido
     events = []
@@ -103,16 +126,36 @@ def load_midi_melody(path):
     for msg in mido.MidiFile(path):  # itération = temps en secondes, tempo géré
         t += msg.time
         if msg.type == "note_on" and msg.velocity > 0 and getattr(msg, "channel", 0) != 9:
-            events.append((t, msg.note))
-    events.sort()
+            events.append((t, msg.note, msg.channel))
+    if not events:
+        return []
+
+    by_channel = {}
+    for start, pitch, channel in events:
+        by_channel.setdefault(channel, []).append((start, pitch))
+    channel = _pick_melody_channel(by_channel)
+    chosen = by_channel.get(channel) or [(s, p) for s, p, _ in events]
+    chosen.sort()
+
     melody = []
-    for start, pitch in events:
+    for start, pitch in chosen:
         if melody and start - melody[-1][0] < 0.035:
             if pitch > melody[-1][1]:
                 melody[-1] = (start, pitch)
         else:
             melody.append((start, pitch))
-    return [midi_to_freq(p) for _, p in melody]
+
+    pitches = []
+    run = 0
+    for _, pitch in melody:
+        if pitches and pitch == pitches[-1]:
+            run += 1
+            if run >= MAX_CONSECUTIVE_REPEATS:
+                continue
+        else:
+            run = 0
+        pitches.append(pitch)
+    return [midi_to_freq(p) for p in pitches]
 
 
 def synth_note(freq, duration_s):
