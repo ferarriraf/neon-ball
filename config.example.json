@@ -1,0 +1,20 @@
+{
+  "instagram": {
+    "username": "TON_COMPTE_INSTA"
+  },
+  "tiktok": {
+    "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP",
+    "client_secret": "COLLE_ICI_LE_CLIENT_SECRET",
+    "refresh_token": "COLLE_ICI_LE_REFRESH_TOKEN_OBTENU_AVEC_tiktok_auth.py",
+    "privacy_level": "SELF_ONLY"
+  },
+  "schedule": {
+    "check_interval_hours": 12,
+    "max_posts_per_run": 2,
+    "seconds_between_posts": 120
+  },
+  "caption": {
+    "append_hashtags": "",
+    "max_length": 2200
+  }
+}
