@@ -35,3 +35,25 @@ class Notifier:
             )
         except Exception as exc:
             log.warning("Notification Discord échouée : %s", exc)
+
+    def send_file(self, path, content):
+        """Envoie un fichier (ex. vidéo) sur le webhook. Retourne True si ok."""
+        if not self.url:
+            return False
+        try:
+            import os
+            with open(path, "rb") as f:
+                resp = requests.post(
+                    self.url,
+                    data={"content": content[:2000]},
+                    files={"file": (os.path.basename(path), f, "video/mp4")},
+                    timeout=300,
+                )
+            if resp.status_code >= 300:
+                log.warning("Fichier refusé par Discord (HTTP %d) : %s",
+                            resp.status_code, resp.text[:200])
+                return False
+            return True
+        except Exception as exc:
+            log.warning("Envoi du fichier sur Discord échoué : %s", exc)
+            return False
