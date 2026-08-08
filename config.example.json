@@ -24,7 +24,8 @@
     "width": 720,
     "height": 1280,
     "fps": 30,
-    "duration_seconds": 68,
+    "min_duration_seconds": 60,
+    "max_duration_seconds": 180,
     "rings": 10,
     "encoder_preset": "ultrafast"
   },
