@@ -1,0 +1,6 @@
+config.json
+tokens.json
+state.json
+downloads/
+__pycache__/
+*.pyc

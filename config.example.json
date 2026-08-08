@@ -1,0 +1,24 @@
+{
+  "instagram": {
+    "username": "TON_COMPTE_INSTA"
+  },
+  "tiktok": {
+    "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP_OU_SANDBOX",
+    "client_secret": "COLLE_ICI_LE_CLIENT_SECRET",
+    "redirect_uri": "COLLE_ICI_LA_REDIRECT_URI_ENREGISTREE_DANS_L_APP",
+    "refresh_token": "",
+    "privacy_level": "SELF_ONLY",
+    "post_mode": "direct"
+  },
+  "schedule": {
+    "post_times": ["10:00", "17:00"],
+    "random_window_minutes": 60,
+    "timezone": "Europe/Paris",
+    "max_posts_per_run": 1,
+    "seconds_between_posts": 120
+  },
+  "caption": {
+    "append_hashtags": "",
+    "max_length": 2200
+  }
+}
