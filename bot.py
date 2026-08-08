@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from generator import generate_video
+from notify import Notifier, GREEN, BLUE, RED, ORANGE
 from tiktok_client import TikTokClient, TikTokError
 
 logging.basicConfig(
@@ -78,7 +79,7 @@ def next_caption(config, state, song_name):
     return captions[index].replace("{song}", song_name)[:2200]
 
 
-def bootstrap_tokens(tk_cfg):
+def bootstrap_tokens(tk_cfg, notifier):
     """Première connexion TikTok, 100 % depuis le panel Pterodactyl (pas de terminal).
 
     Affiche l'URL d'autorisation dans les logs du serveur. L'utilisateur
@@ -103,6 +104,14 @@ def bootstrap_tokens(tk_cfg):
         "state": "bootstrap",
     })
 
+    notifier.send(
+        "🔑 Autorisation TikTok requise",
+        "1. Ouvre ce lien et autorise ton compte :\n" + auth_url +
+        "\n2. Copie l'URL complète de redirection (avec ?code=...)\n"
+        "3. Colle-la dans un fichier auth_redirect.txt à la racine du serveur "
+        "(gestionnaire de fichiers du panel). Le code expire en quelques minutes.",
+        ORANGE,
+    )
     log.info("=" * 70)
     log.info("PREMIÈRE CONNEXION TIKTOK NÉCESSAIRE")
     log.info("1. Ouvre cette URL dans ton navigateur et autorise ton compte :")
@@ -158,6 +167,8 @@ def bootstrap_tokens(tk_cfg):
         }, f, indent=2)
     log.info("✔ Connexion TikTok réussie (scopes : %s), tokens sauvegardés.",
              data.get("scope"))
+    notifier.send("✅ Connexion TikTok réussie",
+                  f"Scopes : {data.get('scope')}", GREEN)
 
 
 def next_slot(schedule, now, last_slot):
@@ -189,11 +200,22 @@ def next_slot(schedule, now, last_slot):
     return base, base + timedelta(minutes=random.uniform(0, window))
 
 
-def run_cycle(config, tiktok, state):
+def run_cycle(config, tiktok, state, notifier):
+    notifier.send("🎬 Génération d'une vidéo...",
+                  "La publication suivra automatiquement à la fin du rendu.", BLUE)
+    started = time.time()
     result = generate_video(config, DOWNLOAD_DIR)
     if result is None:
-        return  # pas de musique disponible : on retentera au prochain créneau
+        notifier.send("⚠️ Génération impossible",
+                      "Aucune musique lisible dans le dossier musics/ : "
+                      "dépose au moins un fichier mp3/wav/m4a/ogg/flac. "
+                      "Nouvel essai au prochain créneau.", ORANGE)
+        return
     video_path, song_name = result
+    notifier.send("🎞️ Vidéo générée",
+                  f"Musique : **{song_name}**\n"
+                  f"Rendu en {(time.time() - started) / 60:.1f} min. Upload en cours...",
+                  BLUE)
     try:
         caption = next_caption(config, state, song_name)
         log.info("Upload sur TikTok (musique : %s)", song_name)
@@ -204,8 +226,12 @@ def run_cycle(config, tiktok, state):
             "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         log.info("Vidéo publiée (publish_id %s)", publish_id)
+        notifier.send("🚀 Publiée sur TikTok !",
+                      f"Musique : **{song_name}**\nDescription : {caption}\n"
+                      f"publish_id : `{publish_id}`", GREEN)
     except TikTokError as exc:
         log.error("Erreur TikTok : %s", exc)
+        notifier.send("❌ Échec de la publication TikTok", str(exc), RED)
     finally:
         save_state(state)
         if os.path.exists(video_path):
@@ -220,11 +246,13 @@ def main():
             log.error("config.json : le champ tiktok.%s n'est pas rempli.", field)
             sys.exit(1)
 
+    notifier = Notifier(config.get("discord_webhook_url", ""))
+
     refresh_token = tk_cfg.get("refresh_token", "")
     if refresh_token.startswith("COLLE_ICI"):
         refresh_token = ""
     if not refresh_token and not os.path.exists(TOKENS_PATH):
-        bootstrap_tokens(tk_cfg)
+        bootstrap_tokens(tk_cfg, notifier)
 
     tiktok = TikTokClient(
         client_key=tk_cfg["client_key"],
@@ -238,21 +266,29 @@ def main():
     schedule = config.get("schedule", {})
     tz = ZoneInfo(schedule.get("timezone", "Europe/Paris"))
 
+    slots_txt = ", ".join(schedule.get("post_times", ["10:00", "17:00"]))
     log.info("Bot démarré : créneaux %s (fenêtre aléatoire de %d min, fuseau %s)",
-             ", ".join(schedule.get("post_times", ["10:00", "17:00"])),
-             schedule.get("random_window_minutes", 60), tz.key)
+             slots_txt, schedule.get("random_window_minutes", 60), tz.key)
+    first = True
     while True:
         now = datetime.now(tz)
         base, run_at = next_slot(schedule, now, state.get("last_slot"))
         wait = (run_at - now).total_seconds()
         log.info("Prochaine publication : %s (dans %.1f h)",
                  run_at.strftime("%d/%m %H:%M"), wait / 3600)
+        if first:
+            notifier.send("🤖 Bot en ligne",
+                          f"Créneaux : {slots_txt} ({tz.key})\n"
+                          f"Prochaine vidéo : {run_at.strftime('%d/%m vers %H:%M')}",
+                          GREEN)
+            first = False
         if wait > 0:
             time.sleep(wait)
         try:
-            run_cycle(config, tiktok, state)
+            run_cycle(config, tiktok, state, notifier)
         except Exception as exc:
             log.error("Cycle en échec : %s", exc)
+            notifier.send("❌ Cycle en échec", str(exc), RED)
         state["last_slot"] = base.isoformat()
         save_state(state)
 

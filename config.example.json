@@ -1,4 +1,5 @@
 {
+  "discord_webhook_url": "",
   "tiktok": {
     "client_key": "COLLE_ICI_LE_CLIENT_KEY_DE_TON_APP_OU_SANDBOX",
     "client_secret": "COLLE_ICI_LE_CLIENT_SECRET",
