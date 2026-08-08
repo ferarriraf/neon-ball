@@ -266,22 +266,38 @@ def main():
     schedule = config.get("schedule", {})
     tz = ZoneInfo(schedule.get("timezone", "Europe/Paris"))
 
+    # Nettoie les vidéos temporaires laissées par un éventuel crash.
+    if os.path.isdir(DOWNLOAD_DIR):
+        for name in os.listdir(DOWNLOAD_DIR):
+            path = os.path.join(DOWNLOAD_DIR, name)
+            if os.path.isfile(path):
+                os.remove(path)
+
     slots_txt = ", ".join(schedule.get("post_times", ["10:00", "17:00"]))
     log.info("Bot démarré : créneaux %s (fenêtre aléatoire de %d min, fuseau %s)",
              slots_txt, schedule.get("random_window_minutes", 60), tz.key)
-    first = True
+    now = datetime.now(tz)
+    _, first_run_at = next_slot(schedule, now, state.get("last_slot"))
+    notifier.send("🤖 Bot en ligne",
+                  f"Créneaux : {slots_txt} ({tz.key})\n"
+                  f"Prochaine vidéo planifiée : {first_run_at.strftime('%d/%m vers %H:%M')}",
+                  GREEN)
+
+    if schedule.get("post_on_start", True):
+        log.info("Vidéo de démarrage dans 30 secondes...")
+        time.sleep(30)
+        try:
+            run_cycle(config, tiktok, state, notifier)
+        except Exception as exc:
+            log.error("Vidéo de démarrage en échec : %s", exc)
+            notifier.send("❌ Vidéo de démarrage en échec", str(exc), RED)
+
     while True:
         now = datetime.now(tz)
         base, run_at = next_slot(schedule, now, state.get("last_slot"))
         wait = (run_at - now).total_seconds()
         log.info("Prochaine publication : %s (dans %.1f h)",
                  run_at.strftime("%d/%m %H:%M"), wait / 3600)
-        if first:
-            notifier.send("🤖 Bot en ligne",
-                          f"Créneaux : {slots_txt} ({tz.key})\n"
-                          f"Prochaine vidéo : {run_at.strftime('%d/%m vers %H:%M')}",
-                          GREEN)
-            first = False
         if wait > 0:
             time.sleep(wait)
         try:

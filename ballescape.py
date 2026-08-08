@@ -69,6 +69,7 @@ class Simulation:
         self.fading = []
         self.rings = []
         self.current = 0
+        self.trail = []  # dernières positions de la balle (traînée lumineuse)
         self._new_ring_set()
 
     def _new_ring_set(self):
@@ -85,6 +86,7 @@ class Simulation:
                 color=color,
             ))
         self.current = 0
+        self.trail.clear()  # la balle se téléporte au centre : pas de streak
         angle = self.rng.uniform(0, 2 * math.pi)
         speed = self.rng.uniform(420, 560)
         self.bx, self.by = self.cx, self.cy
@@ -187,8 +189,17 @@ class Simulation:
             radius = int(BALL_RADIUS + 26 * (1 - k))
             pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.6 * k),
                                (int(fx), int(fy)), radius, 2)
-        # Balle avec halo.
+        # Traînée lumineuse de la couleur des anneaux actuels.
+        ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
+        self.trail.append((self.bx, self.by))
+        if len(self.trail) > 14:
+            self.trail.pop(0)
+        for i, (tx, ty) in enumerate(self.trail[:-1]):
+            k = (i + 1) / len(self.trail)
+            pygame.draw.circle(surface, self._scaled(ring_color, 0.35 * k),
+                               (int(tx), int(ty)), max(2, int(BALL_RADIUS * 0.7 * k)))
+        # Balle avec halo coloré + cœur blanc.
         pos = (int(self.bx), int(self.by))
-        for factor, radius in ((0.20, BALL_RADIUS + 12), (0.5, BALL_RADIUS + 5)):
-            pygame.draw.circle(surface, self._scaled((255, 255, 255), factor), pos, radius)
+        pygame.draw.circle(surface, self._scaled(ring_color, 0.35), pos, BALL_RADIUS + 11)
+        pygame.draw.circle(surface, self._scaled((255, 255, 255), 0.6), pos, BALL_RADIUS + 4)
         pygame.draw.circle(surface, (255, 255, 255), pos, BALL_RADIUS)
