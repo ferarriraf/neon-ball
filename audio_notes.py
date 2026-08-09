@@ -97,6 +97,13 @@ def midi_to_freq(note):
 INTRO_REPEAT_LIMIT = 4
 MAX_INTRO_TRIM_RATIO = 0.4
 
+# Sélection du canal mélodique.
+MIN_SHARE_OF_BUSIEST = 0.15
+MIN_MELODY_NOTES = 8
+# En dessous, la mélodie tournerait en boucle toutes les quelques secondes :
+# signe que le mauvais canal a été retenu, on reprend tout le fichier.
+MIN_USABLE_MELODY = 12
+
 
 def _pick_melody_channel(by_channel):
     """Choisit le canal qui porte la mélodie.
@@ -105,13 +112,24 @@ def _pick_melody_channel(by_channel):
     privilégie donc le canal à la fois aigu et varié, sinon la balle joue
     l'accompagnement et la mélodie connue n'arrive jamais.
     """
+    if not by_channel:
+        return None
+    # Un canal doit peser un minimum face au plus fourni pour être un thème :
+    # sinon un bruitage de quelques notes très variées l'emporte (cas vécu sur
+    # "The Final Countdown" : 14 notes battaient la mélodie de 820 notes).
+    busiest = max(len(n) for n in by_channel.values())
+    floor = max(MIN_MELODY_NOTES, MIN_SHARE_OF_BUSIEST * busiest)
+    candidates = {c: n for c, n in by_channel.items() if len(n) >= floor}
+    if not candidates:                       # morceau très court
+        candidates = by_channel
+
     best_score, best_channel = None, None
-    for channel, notes in by_channel.items():
-        if len(notes) < 8 and len(by_channel) > 1:
-            continue
+    for channel, notes in candidates.items():
         pitches = [p for _, p in notes]
         variety = len(set(pitches)) / len(pitches)
-        score = sum(pitches) / len(pitches) + 40 * variety
+        # La mélodie est presque toujours la voix du dessus ; la variété
+        # départage sans pouvoir écraser ce critère.
+        score = sum(pitches) / len(pitches) + 25 * variety
         if best_score is None or score > best_score:
             best_score, best_channel = score, channel
     return best_channel
@@ -140,18 +158,25 @@ def load_midi_melody(path):
         by_channel.setdefault(channel, []).append((start, pitch))
     channel = _pick_melody_channel(by_channel)
     chosen = by_channel.get(channel) or [(s, p) for s, p, _ in events]
-    chosen.sort()
 
+    pitches = _skyline(chosen)
+    if len(pitches) < MIN_USABLE_MELODY and len(by_channel) > 1:
+        # Le canal retenu est trop maigre : on repart du fichier entier
+        # plutôt que de faire tourner trois notes en boucle.
+        pitches = _skyline([(s, p) for s, p, _ in events])
+    return [midi_to_freq(p) for p in _trim_intro_ostinato(pitches)]
+
+
+def _skyline(notes):
+    """Sur des notes simultanées (accord), ne garde que la plus aiguë."""
     melody = []
-    for start, pitch in chosen:
+    for start, pitch in sorted(notes):
         if melody and start - melody[-1][0] < 0.035:
             if pitch > melody[-1][1]:
                 melody[-1] = (start, pitch)
         else:
             melody.append((start, pitch))
-
-    pitches = [pitch for _, pitch in melody]
-    return [midi_to_freq(p) for p in _trim_intro_ostinato(pitches)]
+    return [pitch for _, pitch in melody]
 
 
 def _trim_intro_ostinato(pitches):
