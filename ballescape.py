@@ -37,17 +37,20 @@ BALL_RADIUS = 16
 GRAVITY = 1500.0
 RESTITUTION = 0.94        # perte d'énergie à chaque rebond
 TANGENT_FRICTION = 0.99   # frottement le long de la paroi
-REVIVE_SPEED = 300.0      # en dessous, la balle reçoit une impulsion
-REVIVE_BOOST = 1.5
+# Plancher de vitesse : la balle est simplement ramenée à ce seuil, sans
+# multiplicateur. Un facteur 1,5 appliqué d'un coup la catapultait.
+REVIVE_SPEED = 240.0
 ESCAPE_BOOST = 1.12       # accélération de récompense en franchissant un anneau
 MAX_SPEED = 1600.0
 # Anti-blocage : la balle doit toujours repartir franchement de la paroi,
 # sinon la gravité la replaque aussitôt et elle mitraille sur place.
-MIN_SEPARATION_SPEED = 300.0
-# ... et toujours repartir de côté : sans vitesse tangentielle, elle
-# rebondit sur place au fond (ou fait l'aller-retour horizontal sur un
-# flanc) et le jeu s'arrête d'avancer.
-MIN_TANGENT_SPEED = 270.0
+MIN_SEPARATION_SPEED = 140.0
+# ... et toujours repartir un peu de côté, sinon elle rebondit sur place au
+# fond de l'anneau. C'est une simple REDIRECTION : on impose une part
+# tangentielle minimale sans changer la norme de la vitesse. Ajouter une
+# vitesse fixe catapultait la balle — sur un flanc, la tangente est
+# verticale, et une balle arrivant à 7 px/s repartait à 685 px/s.
+MIN_TANGENT_SHARE = 0.30
 # Ces minima grandissent avec l'anneau : sur un grand cercle la balle vole
 # plus longtemps entre deux parois, ce qui creusait des trous audibles dans
 # la mélodie (0,62 s entre deux notes dehors contre 0,34 s au centre).
@@ -307,27 +310,29 @@ class Simulation:
                     # Plus l'anneau est grand, plus la balle doit aller vite
                     # pour garder la même cadence de notes.
                     pace = (ring.radius / self.rings[0].radius) ** SPEED_RADIUS_EXPONENT
-                    min_normal = MIN_SEPARATION_SPEED * pace
-                    min_tangent = MIN_TANGENT_SPEED * pace
                     tx, ty = -ny, nx
                     vt = (self.vx * tx + self.vy * ty) * TANGENT_FRICTION
+                    vn = outward * RESTITUTION
+                    # Redirection : au moins une part tangentielle, à norme
+                    # constante — la balle glisse le long de la paroi au lieu
+                    # de sautiller sur place, sans gagner d'énergie.
+                    speed = math.hypot(vn, vt)
+                    min_tangent = MIN_TANGENT_SHARE * speed
                     if abs(vt) < min_tangent:
-                        # Relance latérale : la balle repart le long de la
-                        # paroi au lieu de sautiller au même endroit.
                         sign = self.rng.choice((-1, 1)) if abs(vt) < 1 else \
                             (1 if vt > 0 else -1)
                         vt = sign * min_tangent
-                    # La normale repart toujours assez fort pour décoller de la
-                    # paroi : sinon la gravité la replaque et la balle vibre
-                    # sur place au lieu de rebondir.
-                    vn = max(outward * RESTITUTION, min_normal)
+                        vn = math.sqrt(max(speed * speed - vt * vt, 0.0))
+                    # La normale garde un minimum pour décoller de la paroi :
+                    # sinon la gravité la replaque au sous-pas suivant.
+                    vn = max(vn, MIN_SEPARATION_SPEED * pace)
                     self.vx = -nx * vn + tx * vt
                     self.vy = -ny * vn + ty * vt
                     speed = math.hypot(self.vx, self.vy)
                     revive = REVIVE_SPEED * pace
                     if speed < revive:
-                        # La balle s'endort : coup de fouet pour relancer le jeu.
-                        factor = REVIVE_BOOST * revive / max(speed, 1.0)
+                        # La balle s'endort : on la remonte juste au plancher.
+                        factor = revive / max(speed, 1.0)
                         self.vx *= factor
                         self.vy *= factor
                     self._clamp_speed()
@@ -409,12 +414,6 @@ class Simulation:
         white = self._scaled((255, 255, 255), 0.9 * brightness)
         pygame.draw.lines(surface, white, False, pts, 2)
         pygame.draw.aalines(surface, white, False, pts)
-        # Embouts arrondis : les bords de l'ouverture sont nets, on voit
-        # exactement où le mur s'arrête et où la balle peut passer.
-        for end in (pts[0], pts[-1]):
-            spot = (int(end[0]), int(end[1]))
-            pygame.draw.circle(surface, self._scaled(color, 0.5 * brightness), spot, 5)
-            pygame.draw.circle(surface, white, spot, 3)
 
     def _draw_celebrations(self, surface, t):
         for celeb in self.celebrations:

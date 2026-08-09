@@ -256,6 +256,19 @@ def make_discord_preview(video_path):
         return None
 
 
+def keep_video(config, video_path):
+    """Archive la vidéo dans un dossier qui n'est jamais nettoyé.
+
+    `downloads/` est vidé à chaque démarrage : les vidéos qu'on veut garder
+    (publication en pause, ou refus TikTok) sont déplacées à part.
+    """
+    keep_dir = config.get("video", {}).get("keep_dir", "videos")
+    os.makedirs(keep_dir, exist_ok=True)
+    target = os.path.join(keep_dir, os.path.basename(video_path))
+    os.replace(video_path, target)
+    return target
+
+
 def send_video_to_discord(notifier, video_path, info):
     """Envoie la vidéo sur Discord, en version compressée si elle est trop lourde."""
     if notifier.send_file(video_path, info):
@@ -290,19 +303,20 @@ def run_cycle(config, tiktok, state, notifier):
     video_path, song_name = result
     caption = next_caption(config, state, song_name)
 
-    if not config.get("tiktok", {}).get("posting_enabled", True):
-        # Mode test : pas de publication TikTok, la vidéo part sur Discord.
-        log.info("Publication TikTok en pause : envoi de la vidéo sur Discord")
-        size_mb = os.path.getsize(video_path) / 1e6
+    if not config.get("tiktok", {}).get("posting_enabled", False):
+        # Mode test : pas de publication TikTok. La vidéo est archivée sur le
+        # serveur (dossier jamais nettoyé) et envoyée sur Discord.
+        kept = keep_video(config, video_path)
+        size_mb = os.path.getsize(kept) / 1e6
+        log.info("Publication TikTok en pause : vidéo conservée dans %s", kept)
         info = (f"🧪 **Vidéo de test** (publication TikTok en pause)\n"
                 f"Musique : **{song_name}** — rendu en "
                 f"{(time.time() - started) / 60:.1f} min — {size_mb:.1f} Mo\n"
+                f"Gardée sur le serveur : `{kept}`\n"
                 f"Description prévue : {caption}")
-        if not send_video_to_discord(notifier, video_path, info):
-            notifier.send("🧪 Vidéo générée mais trop lourde pour Discord",
-                          info + f"\nRécupère-la via le gestionnaire de fichiers : {video_path}",
-                          ORANGE)
-        return  # on garde le fichier dans downloads/ jusqu'au prochain restart
+        if not send_video_to_discord(notifier, kept, info):
+            notifier.send("🧪 Vidéo générée (trop lourde pour Discord)", info, ORANGE)
+        return
 
     notifier.send("🎞️ Vidéo générée",
                   f"Musique : **{song_name}**\n"
@@ -331,11 +345,12 @@ def run_cycle(config, tiktok, state, notifier):
     except TikTokError as exc:
         log.error("Erreur TikTok : %s", exc)
         notifier.send("❌ Échec de la publication TikTok", str(exc), RED)
-        # La vidéo est prête : on l'envoie sur Discord plutôt que de perdre
-        # le rendu à cause d'un refus côté TikTok.
+        # Le rendu a coûté plusieurs minutes : on le garde sur le serveur et
+        # on l'envoie sur Discord plutôt que de le perdre sur un refus.
+        video_path = keep_video(config, video_path)
         send_video_to_discord(
             notifier, video_path,
-            f"💾 Vidéo non publiée, gardée ici — {song_name}\n{caption}")
+            f"💾 Non publiée, gardée dans `{video_path}` — {song_name}\n{caption}")
     finally:
         save_state(state)
         if os.path.exists(video_path):
