@@ -121,14 +121,25 @@ def generate_video(config, out_dir, song_path=None):
                      finish_after=min_duration)
     events = []
     end_time = None
+    melody_over = False
+    notes_played = 0
+    melody_length = len(melody) if is_midi else None
     total_frames = int(max_duration * fps)
     for frame in range(total_frames):
         t = frame / fps
         for sub in range(PHYSICS_SUBSTEPS):
             new_events = sim.step(dt, t + sub * dt)
             events.extend(new_events)
-            if end_time is None and t >= min_duration:
-                if any(kind == "complete" for _, kind in new_events):
+            for _, kind in new_events:
+                if kind == "bounce":
+                    notes_played += 1
+            if end_time is None:
+                if melody_length and notes_played >= melody_length:
+                    # Le morceau est joué en entier : on conclut plutôt que de
+                    # le redémarrer depuis le début au milieu de la vidéo.
+                    end_time = t + END_TAIL
+                    melody_over = True
+                elif t >= min_duration and any(k == "complete" for _, k in new_events):
                     end_time = t + END_TAIL
         if end_time is not None and t >= end_time:
             total_frames = frame + 1
@@ -138,6 +149,10 @@ def generate_video(config, out_dir, song_path=None):
     if end_time is None:
         log.warning("Aucune sphère terminée après %ds : vidéo coupée à la durée "
                     "maximale (%ds).", min_duration, max_duration)
+    elif melody_over and duration < min_duration:
+        log.warning("Mélodie épuisée après %d notes : vidéo de %.0fs seulement "
+                    "(minimum visé : %ds). Utilise un MIDI plus long pour "
+                    "atteindre la minute.", melody_length, duration, min_duration)
     log.info("Simulation : %.1fs, %d sphère(s) terminée(s), %d événements",
              duration, spheres, len(events))
 
