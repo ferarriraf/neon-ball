@@ -18,6 +18,7 @@ os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
+import pygame.gfxdraw as gfxdraw
 
 NEON_PALETTE = [
     (57, 255, 20),    # vert néon (comme le style d'origine)
@@ -59,9 +60,9 @@ CELEBRATION_DURATION = 1.4
 PARTICLE_COUNT = 26
 TRAIL_LENGTH = 34         # positions gardées pour la traînée (sous-pas physiques)
 
-SPARK_COUNT = 9           # étincelles projetées à chaque rebond
-SPARK_LIFE = 0.45
-SPARK_GRAVITY = 1100.0
+SPARK_COUNT = 12          # étincelles projetées à chaque rebond
+SPARK_LIFE = 0.5
+SPARK_GRAVITY = 1400.0    # elles retombent vite, comme des braises
 RIPPLE_LIFE = 0.95        # durée de dissipation d'un anneau franchi
 RIPPLE_EXPANSION = 0.13   # dilatation de l'anneau pendant qu'il s'efface
 MOTE_COUNT = 30           # particules qui se détachent de l'anneau
@@ -367,12 +368,34 @@ class Simulation:
             self._glow_cache[color] = tinted
         return tinted
 
+    def _arc_band(self, surface, color, radius, width, start, span, n):
+        """Bande annulaire dessinée d'un seul polygone.
+
+        Un trait épais en `draw.lines` est découpé en segments dont les
+        jointures laissent des encoches : en rotation, elles se déplacent et
+        l'anneau semble trembler. Un polygone unique n'a pas de jointures.
+        """
+        half = width / 2
+        outer, inner = [], []
+        for i in range(n + 1):
+            a = start + span * i / n
+            ca, sa = math.cos(a), math.sin(a)
+            outer.append((self.cx + ca * (radius + half), self.cy + sa * (radius + half)))
+            inner.append((self.cx + ca * (radius - half), self.cy + sa * (radius - half)))
+        inner.reverse()
+        poly = outer + inner
+        pygame.draw.polygon(surface, color, poly)
+        # Contour anti-aliasé : sans lui, le bord bascule d'un pixel à l'autre
+        # au fil de la rotation et l'anneau semble grésiller.
+        gfxdraw.aapolygon(surface, [(int(x), int(y)) for x, y in poly], color)
+
     def _draw_ring(self, surface, ring, brightness=1.0):
         start = ring.gap_center + ring.gap_half
         end = ring.gap_center + 2 * math.pi - ring.gap_half
         span = end - start
-        # Échantillonnage plus fin : les arcs paraissent lisses, pas polygonaux.
-        n = max(24, min(720, int(span * ring.radius / 4)))
+        # Densité de points : au-delà, l'écart à la courbe idéale est très
+        # inférieur au pixel et on ne paie que du temps de calcul.
+        n = max(32, min(220, int(span * ring.radius / 10)))
         pts = []
         for i in range(n + 1):
             a = start + span * i / n
@@ -380,8 +403,8 @@ class Simulation:
                         self.cy + math.sin(a) * ring.radius))
         color = ring.color
         for factor, width in ((0.13, 19), (0.28, 13), (0.55, 8), (1.0, 4)):
-            pygame.draw.lines(surface, self._scaled(color, factor * brightness),
-                              False, pts, width)
+            self._arc_band(surface, self._scaled(color, factor * brightness),
+                           ring.radius, width, start, span, n)
         # Cœur blanc lissé : c'est lui qui donne le fini "néon".
         white = self._scaled((255, 255, 255), 0.9 * brightness)
         pygame.draw.lines(surface, white, False, pts, 2)
@@ -556,13 +579,21 @@ class Simulation:
                                    (int(px), int(py)), size)
 
     def _draw_sparks(self, surface, t):
-        for x, y, _, _, born, color in self.sparks:
-            fade = max(0.0, 1.0 - (t - born) / SPARK_LIFE)
-            size = max(1, int(4 * fade))
-            pygame.draw.circle(surface, self._scaled(color, 0.5 * fade),
-                               (int(x), int(y)), size + 2)
+        """Étincelles en filé : un court trait dans l'axe du vol, pointe claire."""
+        for x, y, vx, vy, born, color in self.sparks:
+            age = (t - born) / SPARK_LIFE
+            fade = max(0.0, 1.0 - age) ** 1.4
+            if fade < 0.03:
+                continue
+            # Le filé s'étire avec la vitesse et se rétracte en s'éteignant.
+            tail = 0.045 * fade
+            back = (x - vx * tail, y - vy * tail)
+            pygame.draw.line(surface, self._scaled(color, 0.55 * fade),
+                             back, (x, y), max(1, int(3 * fade)))
+            pygame.draw.circle(surface, self._scaled(color, 0.8 * fade),
+                               (int(x), int(y)), max(1, int(2.5 * fade)) + 1)
             pygame.draw.circle(surface, self._scaled((255, 255, 255), fade),
-                               (int(x), int(y)), size)
+                               (int(x), int(y)), max(1, int(1.6 * fade)))
 
     def _draw_counter(self, surface):
         """Compteur discret des couches restantes."""
