@@ -127,6 +127,24 @@ class TikTokClient:
             "Content-Type": "application/json; charset=UTF-8",
         }
 
+    # ------------------------------------------------------------ Diagnostic
+
+    def creator_info(self):
+        """Ce que TikTok autorise pour le compte connecté, ici et maintenant.
+
+        Renvoie notamment privacy_level_options : c'est la source de vérité
+        sur la visibilité permise, et elle révèle si TikTok voit encore le
+        compte comme public.
+        """
+        resp = requests.post(
+            f"{API_BASE}/post/publish/creator_info/query/",
+            headers=self._auth_headers(), timeout=30,
+        )
+        data = resp.json()
+        if data.get("error", {}).get("code") not in (None, "ok"):
+            raise TikTokError(f"creator_info refusé — {_explain(data['error'])}")
+        return data.get("data", {})
+
     # ----------------------------------------------------------------- Upload
 
     @staticmethod
@@ -139,6 +157,20 @@ class TikTokClient:
     def upload_video(self, video_path, title):
         video_size = os.path.getsize(video_path)
         chunk_size, total_chunk_count = self._chunk_plan(video_size)
+
+        privacy = self.privacy_level
+        if self.post_mode != "inbox":
+            info = self.creator_info()
+            options = info.get("privacy_level_options", [])
+            log.info("Compte TikTok : %s | visibilités autorisées : %s",
+                     info.get("creator_nickname", "?"), options or "aucune")
+            if options and privacy not in options:
+                # Ne jamais publier avec une visibilité autre que celle voulue.
+                raise TikTokError(
+                    f"Visibilité '{privacy}' refusée pour ce compte. "
+                    f"TikTok n'autorise que : {', '.join(options)}.\n\n"
+                    "➡️ Mets l'une de ces valeurs dans config.json "
+                    "(tiktok.privacy_level).")
 
         source_info = {
             "source": "FILE_UPLOAD",
@@ -154,7 +186,7 @@ class TikTokClient:
             payload = {
                 "post_info": {
                     "title": title,
-                    "privacy_level": self.privacy_level,
+                    "privacy_level": privacy,
                     "disable_duet": False,
                     "disable_comment": False,
                     "disable_stitch": False,
