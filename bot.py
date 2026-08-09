@@ -380,15 +380,34 @@ def main():
     save_state(state)
     log.info("Playlist mélangée : %d morceau(x)", len(playlist))
     now = datetime.now(tz)
-    _, first_run_at = next_slot(schedule, now, state.get("last_slot"))
+    upcoming_base, upcoming_run_at = next_slot(schedule, now, state.get("last_slot"))
+    post_on_start = schedule.get("post_on_start", True)
+
+    if post_on_start:
+        # La vidéo de démarrage prend la place du créneau à venir : le rythme
+        # reste de deux vidéos par jour, même en cas de redémarrage.
+        # Marqué avant la génération pour qu'un plantage ne double pas le post.
+        state["last_slot"] = upcoming_base.isoformat()
+        save_state(state)
+        _, after_run_at = next_slot(schedule, now, state["last_slot"])
+        next_txt = after_run_at.strftime("%d/%m vers %H:%M")
+        first_line = (f"Vidéo générée maintenant, à la place du créneau de "
+                      f"{upcoming_run_at.strftime('%Hh%M')}")
+    else:
+        next_txt = upcoming_run_at.strftime("%d/%m vers %H:%M")
+        first_line = "Aucune vidéo au démarrage"
+
     notifier.send("🤖 Bot en ligne",
                   f"Créneaux : {slots_txt} ({tz.key})\n"
                   f"Playlist mélangée : {len(playlist)} morceau(x)\n"
-                  f"Prochaine vidéo planifiée : {first_run_at.strftime('%d/%m vers %H:%M')}",
+                  f"{first_line}\n"
+                  f"Prochaine vidéo planifiée : {next_txt}",
                   GREEN)
 
-    if schedule.get("post_on_start", True):
-        log.info("Génération de la vidéo de démarrage...")
+    if post_on_start:
+        log.info("Vidéo de démarrage (elle consomme le créneau de %s) ; "
+                 "prochaine ensuite : %s",
+                 upcoming_run_at.strftime("%Hh%M"), next_txt)
         try:
             run_cycle(config, tiktok, state, notifier)
         except Exception as exc:
