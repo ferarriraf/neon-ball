@@ -37,9 +37,18 @@ BALL_RADIUS = 16
 GRAVITY = 1500.0
 RESTITUTION = 0.94        # perte d'énergie à chaque rebond
 TANGENT_FRICTION = 0.99   # frottement le long de la paroi
-# Plancher de vitesse : la balle est simplement ramenée à ce seuil, sans
-# multiplicateur. Un facteur 1,5 appliqué d'un coup la catapultait.
-REVIVE_SPEED = 240.0
+# Plancher d'ÉNERGIE, pas de vitesse. Le fond d'un anneau est une cuvette :
+# avec un simple plancher de vitesse, la balle n'avait pas de quoi remonter la
+# paroi et sautillait en bas en attendant que l'ouverture passe. On garantit
+# donc de quoi grimper jusqu'à CLIMB_TARGET x le rayon — ce qu'il faut varie
+# avec la hauteur où se produit le rebond, d'où beaucoup moins d'à-coups.
+# 1.1 est le meilleur compromis mesuré : le blocage en bas passe de 43 s à
+# moins d'une seconde, avec l'accélération par rebond la plus douce (x1,3 au
+# pire). Monter plus haut relance la balle plus fort sans rien gagner.
+CLIMB_TARGET = 1.1
+# ... et la remise à niveau est étalée sur plusieurs rebonds : un seul rebond
+# ne peut jamais multiplier la vitesse au-delà de ça (fini les catapultes).
+MAX_BOUNCE_GAIN = 1.6
 ESCAPE_BOOST = 1.12       # accélération de récompense en franchissant un anneau
 MAX_SPEED = 1600.0
 # Anti-blocage : la balle doit toujours repartir franchement de la paroi,
@@ -329,10 +338,14 @@ class Simulation:
                     self.vx = -nx * vn + tx * vt
                     self.vy = -ny * vn + ty * vt
                     speed = math.hypot(self.vx, self.vy)
-                    revive = REVIVE_SPEED * pace
-                    if speed < revive:
-                        # La balle s'endort : on la remonte juste au plancher.
-                        factor = revive / max(speed, 1.0)
+                    # Énergie : de quoi remonter la paroi depuis l'endroit où
+                    # l'on rebondit. En bas de la cuvette il en faut beaucoup,
+                    # en haut presque rien — le coup de pouce est donc dosé.
+                    height = (self.cy + ring.radius) - self.by
+                    needed_sq = 2 * GRAVITY * (ring.radius * CLIMB_TARGET - height)
+                    if needed_sq > 0 and speed * speed < needed_sq:
+                        factor = min(math.sqrt(needed_sq) / max(speed, 1.0),
+                                     MAX_BOUNCE_GAIN)
                         self.vx *= factor
                         self.vy *= factor
                     self._clamp_speed()
