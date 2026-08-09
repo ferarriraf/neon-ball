@@ -331,6 +331,11 @@ def run_cycle(config, tiktok, state, notifier):
     except TikTokError as exc:
         log.error("Erreur TikTok : %s", exc)
         notifier.send("❌ Échec de la publication TikTok", str(exc), RED)
+        # La vidéo est prête : on l'envoie sur Discord plutôt que de perdre
+        # le rendu à cause d'un refus côté TikTok.
+        send_video_to_discord(
+            notifier, video_path,
+            f"💾 Vidéo non publiée, gardée ici — {song_name}\n{caption}")
     finally:
         save_state(state)
         if os.path.exists(video_path):
