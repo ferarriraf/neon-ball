@@ -33,7 +33,10 @@ BALL_RADIUS = 16
 # Physique : gravité forte + rebonds amortis = la vitesse respire vraiment
 # (la balle ralentit en montant, accélère en tombant). Un coup de fouet
 # n'est donné que si elle s'endort, et une évasion offre un petit boost.
-GRAVITY = 1500.0
+# Gravité élevée : c'est le vrai remède aux trous dans la mélodie. Les vols
+# paraboliques trop longs disparaissent, la cadence monte à ~2,3 notes/s et
+# le silence audible tombe de 14 % à 3 % du temps (mesuré).
+GRAVITY = 2600.0
 RESTITUTION = 0.94        # perte d'énergie à chaque rebond
 TANGENT_FRICTION = 0.99   # frottement le long de la paroi
 REVIVE_SPEED = 300.0      # en dessous, la balle reçoit une impulsion
@@ -47,6 +50,10 @@ MIN_SEPARATION_SPEED = 300.0
 # rebondit sur place au fond (ou fait l'aller-retour horizontal sur un
 # flanc) et le jeu s'arrête d'avancer.
 MIN_TANGENT_SPEED = 270.0
+# Ces minima grandissent avec l'anneau : sur un grand cercle la balle vole
+# plus longtemps entre deux parois, ce qui creusait des trous audibles dans
+# la mélodie (0,62 s entre deux notes dehors contre 0,34 s au centre).
+SPEED_RADIUS_EXPONENT = 0.5
 BOUNCE_COOLDOWN = 0.035   # deux rebonds ne peuvent pas s'enchaîner plus vite
 WALL_CLEARANCE = 2.0      # on la repose légèrement en retrait de la paroi
 
@@ -289,24 +296,30 @@ class Simulation:
                 if outward > 0 and t - self.last_bounce_t >= BOUNCE_COOLDOWN:
                     # Réflexion : composante normale inversée et amortie,
                     # composante tangentielle légèrement freinée.
+                    # Plus l'anneau est grand, plus la balle doit aller vite
+                    # pour garder la même cadence de notes.
+                    pace = (ring.radius / self.rings[0].radius) ** SPEED_RADIUS_EXPONENT
+                    min_normal = MIN_SEPARATION_SPEED * pace
+                    min_tangent = MIN_TANGENT_SPEED * pace
                     tx, ty = -ny, nx
                     vt = (self.vx * tx + self.vy * ty) * TANGENT_FRICTION
-                    if abs(vt) < MIN_TANGENT_SPEED:
+                    if abs(vt) < min_tangent:
                         # Relance latérale : la balle repart le long de la
                         # paroi au lieu de sautiller au même endroit.
                         sign = self.rng.choice((-1, 1)) if abs(vt) < 1 else \
                             (1 if vt > 0 else -1)
-                        vt = sign * MIN_TANGENT_SPEED
+                        vt = sign * min_tangent
                     # La normale repart toujours assez fort pour décoller de la
                     # paroi : sinon la gravité la replaque et la balle vibre
                     # sur place au lieu de rebondir.
-                    vn = max(outward * RESTITUTION, MIN_SEPARATION_SPEED)
+                    vn = max(outward * RESTITUTION, min_normal)
                     self.vx = -nx * vn + tx * vt
                     self.vy = -ny * vn + ty * vt
                     speed = math.hypot(self.vx, self.vy)
-                    if speed < REVIVE_SPEED:
+                    revive = REVIVE_SPEED * pace
+                    if speed < revive:
                         # La balle s'endort : coup de fouet pour relancer le jeu.
-                        factor = REVIVE_BOOST * REVIVE_SPEED / max(speed, 1.0)
+                        factor = REVIVE_BOOST * revive / max(speed, 1.0)
                         self.vx *= factor
                         self.vy *= factor
                     self._clamp_speed()

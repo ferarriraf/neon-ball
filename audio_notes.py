@@ -254,9 +254,10 @@ def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
     track = np.zeros((total_samples, 2), dtype=np.int32)
     if not freqs:
         return track.astype(np.int16)
-    # Les notes sonnent un peu plus longtemps que la tranche audio pour
-    # laisser la décroissance respirer.
-    duration = min(0.9, max(0.35, note_duration_ms / 1000 * 1.6))
+    # Les notes résonnent nettement plus longtemps que leur tranche : la
+    # décroissance comble les écarts entre deux rebonds au lieu de laisser
+    # un trou audible.
+    duration = min(1.3, max(0.5, note_duration_ms / 1000 * 2.6))
     index = 0
     for t, kind in events:
         start = int(t * SAMPLE_RATE)
