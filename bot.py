@@ -256,6 +256,18 @@ def make_discord_preview(video_path):
         return None
 
 
+def send_video_to_discord(notifier, video_path, info):
+    """Envoie la vidéo sur Discord, en version compressée si elle est trop lourde."""
+    if notifier.send_file(video_path, info):
+        return True
+    preview = make_discord_preview(video_path)
+    sent = bool(preview) and notifier.send_file(
+        preview, info + "\n(version compressée : l'originale dépasse la limite Discord)")
+    if preview and os.path.exists(preview):
+        os.remove(preview)
+    return sent
+
+
 def run_cycle(config, tiktok, state, notifier):
     song_path, position, total = next_song(config, state)
     save_state(state)
@@ -278,7 +290,7 @@ def run_cycle(config, tiktok, state, notifier):
     video_path, song_name = result
     caption = next_caption(config, state, song_name)
 
-    if not config.get("tiktok", {}).get("posting_enabled", False):
+    if not config.get("tiktok", {}).get("posting_enabled", True):
         # Mode test : pas de publication TikTok, la vidéo part sur Discord.
         log.info("Publication TikTok en pause : envoi de la vidéo sur Discord")
         size_mb = os.path.getsize(video_path) / 1e6
@@ -286,16 +298,10 @@ def run_cycle(config, tiktok, state, notifier):
                 f"Musique : **{song_name}** — rendu en "
                 f"{(time.time() - started) / 60:.1f} min — {size_mb:.1f} Mo\n"
                 f"Description prévue : {caption}")
-        if not notifier.send_file(video_path, info):
-            preview = make_discord_preview(video_path)
-            sent = bool(preview) and notifier.send_file(
-                preview, info + "\n(version compressée : l'originale dépasse la limite Discord)")
-            if preview and os.path.exists(preview):
-                os.remove(preview)
-            if not sent:
-                notifier.send("🧪 Vidéo générée mais trop lourde pour Discord",
-                              info + f"\nRécupère-la via le gestionnaire de fichiers : {video_path}",
-                              ORANGE)
+        if not send_video_to_discord(notifier, video_path, info):
+            notifier.send("🧪 Vidéo générée mais trop lourde pour Discord",
+                          info + f"\nRécupère-la via le gestionnaire de fichiers : {video_path}",
+                          ORANGE)
         return  # on garde le fichier dans downloads/ jusqu'au prochain restart
 
     notifier.send("🎞️ Vidéo générée",
@@ -311,9 +317,17 @@ def run_cycle(config, tiktok, state, notifier):
             "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         log.info("Vidéo publiée (publish_id %s)", publish_id)
+        privacy = config.get("tiktok", {}).get("privacy_level", "SELF_ONLY")
+        note = ("\n⚠️ Visibilité `SELF_ONLY` : la vidéo n'est visible que par toi "
+                "(limite TikTok tant que l'app n'est pas auditée)."
+                if privacy == "SELF_ONLY" else "")
+        # La vidéo publiée part aussi sur Discord : archive de ce qui est en ligne.
+        send_video_to_discord(
+            notifier, video_path,
+            f"🚀 **Publiée sur TikTok** — {song_name}\n{caption}{note}")
         notifier.send("🚀 Publiée sur TikTok !",
                       f"Musique : **{song_name}**\nDescription : {caption}\n"
-                      f"publish_id : `{publish_id}`", GREEN)
+                      f"publish_id : `{publish_id}`{note}", GREEN)
     except TikTokError as exc:
         log.error("Erreur TikTok : %s", exc)
         notifier.send("❌ Échec de la publication TikTok", str(exc), RED)
