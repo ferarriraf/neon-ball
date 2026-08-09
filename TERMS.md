@@ -1,6 +1,6 @@
 # Terms of Service
 
-**bot-scrap** is a personal automation tool operated by its owner for their own use only.
+**Neon Escape** is a personal automation tool operated by its owner for their own use only.
 
 - The tool generates original animated videos ("ball escape" animations, rendered from
   code, whose bounces play a melody) on the owner's own private server, and publishes
