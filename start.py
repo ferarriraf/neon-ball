@@ -34,7 +34,7 @@ def update_from_github():
         # Si le dépôt est renommé sur GitHub, il suffit d'ajouter
         # "github_repo": "proprietaire/nouveau-nom" dans config.json.
         repo = cfg.get("github_repo") or DEFAULT_REPO
-        token = cfg.get("github_token", "").strip()
+        token = (cfg.get("github_token") or "").strip()
         if token:
             request = urllib.request.Request(
                 f"https://api.github.com/repos/{repo}/zipball/main",
