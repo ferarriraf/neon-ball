@@ -384,6 +384,29 @@ def main():
     playlist = shuffle_playlist(config, state)
     save_state(state)
     log.info("Playlist mélangée : %d morceau(x)", len(playlist))
+    # État réel du compte vu par TikTok : dit tout de suite si la visibilité
+    # configurée est acceptée, au lieu d'attendre le refus d'un upload.
+    try:
+        info = tiktok.creator_info()
+        options = info.get("privacy_level_options", [])
+        wanted = tk_cfg.get("privacy_level", "SELF_ONLY")
+        verdict = ("✅ publication possible" if wanted in options
+                   else f"❌ `{wanted}` non autorisée")
+        notifier.send(
+            "🔎 Compte TikTok connecté",
+            f"Compte : **{info.get('creator_nickname', '?')}**\n"
+            f"Visibilités autorisées : {', '.join(options) or 'aucune'}\n"
+            f"Configurée : `{wanted}` → {verdict}\n"
+            f"Durée max : {info.get('max_video_post_duration_sec', '?')} s",
+            GREEN if wanted in options else ORANGE)
+        log.info("creator_info : %s", info)
+    except Exception as exc:
+        log.warning("creator_info indisponible : %s", exc)
+        notifier.send("⚠️ Impossible de lire l'état du compte TikTok",
+                      f"{exc}\nSi l'erreur persiste, supprime `tokens.json` "
+                      "via le gestionnaire de fichiers et redémarre pour "
+                      "refaire l'autorisation.", ORANGE)
+
     now = datetime.now(tz)
     upcoming_base, upcoming_run_at = next_slot(schedule, now, state.get("last_slot"))
     post_on_start = schedule.get("post_on_start", True)
