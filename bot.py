@@ -346,13 +346,14 @@ def main():
     config = load_config()
     tk_cfg = config["tiktok"]
     for field in ("client_key", "client_secret"):
-        if not tk_cfg.get(field) or tk_cfg[field].startswith("COLLE_ICI"):
+        if not tk_cfg.get(field) or str(tk_cfg[field]).startswith("COLLE_ICI"):
             log.error("config.json : le champ tiktok.%s n'est pas rempli.", field)
             sys.exit(1)
 
     notifier = Notifier(config.get("discord_webhook_url", ""))
 
-    refresh_token = tk_cfg.get("refresh_token", "")
+    # `or ""` : la clé peut valoir null dans le JSON (jeton pas encore obtenu).
+    refresh_token = (tk_cfg.get("refresh_token") or "").strip()
     if refresh_token.startswith("COLLE_ICI"):
         refresh_token = ""
     if not refresh_token and not os.path.exists(TOKENS_PATH):
