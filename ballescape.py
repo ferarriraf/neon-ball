@@ -33,10 +33,7 @@ BALL_RADIUS = 16
 # Physique : gravité forte + rebonds amortis = la vitesse respire vraiment
 # (la balle ralentit en montant, accélère en tombant). Un coup de fouet
 # n'est donné que si elle s'endort, et une évasion offre un petit boost.
-# Gravité élevée : c'est le vrai remède aux trous dans la mélodie. Les vols
-# paraboliques trop longs disparaissent, la cadence monte à ~2,3 notes/s et
-# le silence audible tombe de 14 % à 3 % du temps (mesuré).
-GRAVITY = 2600.0
+GRAVITY = 1500.0
 RESTITUTION = 0.94        # perte d'énergie à chaque rebond
 TANGENT_FRICTION = 0.99   # frottement le long de la paroi
 REVIVE_SPEED = 300.0      # en dessous, la balle reçoit une impulsion

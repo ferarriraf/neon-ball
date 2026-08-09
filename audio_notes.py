@@ -86,8 +86,45 @@ def build_note_track(pcm, events, note_duration_ms, total_duration_s,
     return track.astype(np.int16)
 
 
+# Un haut-parleur de téléphone ne restitue quasiment rien sous ~150 Hz : une
+# note grave est jouée à plein niveau mais reste inaudible, ce qui donne
+# l'impression que la balle rebondit sans faire de bruit. La mélodie est donc
+# transposée dans un registre qui passe partout.
+AUDIBLE_LOW = 200.0
+AUDIBLE_HIGH = 2000.0
+TARGET_CENTER = 520.0     # autour de do5, bien clair sur un petit haut-parleur
+
+
 def midi_to_freq(note):
     return 440.0 * 2 ** ((note - 69) / 12)
+
+
+def _transpose_to_audible(freqs):
+    """Remonte la mélodie dans un registre audible sur un téléphone.
+
+    D'abord un décalage d'octaves appliqué à TOUTES les notes (le contour
+    mélodique est conservé intact), puis, seulement pour les rares notes qui
+    dépassent encore, un repli à l'octave.
+    """
+    if not freqs:
+        return freqs
+    ordered = sorted(freqs)
+    median = ordered[len(ordered) // 2]
+    shift = 1.0
+    while median * shift < TARGET_CENTER / 1.5:
+        shift *= 2
+    while median * shift > TARGET_CENTER * 1.5:
+        shift /= 2
+
+    out = []
+    for f in freqs:
+        f *= shift
+        while f < AUDIBLE_LOW:
+            f *= 2
+        while f > AUDIBLE_HIGH:
+            f /= 2
+        out.append(f)
+    return out
 
 
 # Une note répétée plus que ça EN TÊTE de morceau est un ostinato d'intro,
@@ -164,7 +201,8 @@ def load_midi_melody(path):
         # Le canal retenu est trop maigre : on repart du fichier entier
         # plutôt que de faire tourner trois notes en boucle.
         pitches = _skyline([(s, p) for s, p, _ in events])
-    return [midi_to_freq(p) for p in _trim_intro_ostinato(pitches)]
+    return _transpose_to_audible(
+        [midi_to_freq(p) for p in _trim_intro_ostinato(pitches)])
 
 
 def _skyline(notes):
@@ -208,12 +246,13 @@ def synth_note(freq, duration_s):
 def synth_sparkle(base_freq=1046.5):
     """Petit arpège cristallin "bling" joué en franchissant un anneau.
 
-    Volume volontairement bas : c'est un ornement par-dessus la mélodie,
-    il ne doit jamais couvrir la note en cours.
+    Un franchissement ne joue aucune note de mélodie : ce carillon est le
+    SEUL son de l'événement, il doit donc s'entendre franchement — sinon le
+    passage d'une couche paraît muet.
     """
     parts = []
     for i, ratio in enumerate((1.0, 1.26, 1.5, 2.0)):  # majeur ascendant
-        note = synth_note(base_freq * ratio, 0.5) // 5
+        note = synth_note(base_freq * ratio, 0.5) // 3
         pad = np.zeros((int(SAMPLE_RATE * 0.045 * i), 2), dtype=np.int32)
         parts.append(np.concatenate([pad, note]))
     length = max(len(p) for p in parts)
