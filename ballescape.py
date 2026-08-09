@@ -425,6 +425,35 @@ class Simulation:
                              (x, base_y - h, bar_w, max(2, bar_w // 2)),
                              border_radius=bar_w // 2)
 
+    def _fit_title(self, text):
+        """Rend le titre ENTIER : on réduit la police, puis on passe sur
+        plusieurs lignes si besoin. Jamais de troncature."""
+        max_w = int(self.w * 0.90)
+        base = max(26, int(self.w * 0.058))
+        for size in range(base, 17, -2):
+            font = pygame.font.Font(None, size)
+            lines = self._wrap(text, font, max_w)
+            if len(lines) <= 2 and all(font.size(l)[0] <= max_w for l in lines):
+                return [font.render(l, True, (255, 255, 255)) for l in lines]
+        # Titre à rallonge : trois lignes dans la plus petite taille.
+        font = pygame.font.Font(None, 18)
+        lines = self._wrap(text, font, max_w)[:3]
+        return [font.render(l, True, (255, 255, 255)) for l in lines]
+
+    @staticmethod
+    def _wrap(text, font, max_w):
+        lines, current = [], ""
+        for word in text.split():
+            trial = f"{current} {word}".strip()
+            if current and font.size(trial)[0] > max_w:
+                lines.append(current)
+                current = word
+            else:
+                current = trial
+        if current:
+            lines.append(current)
+        return lines or [text]
+
     def draw_title(self, surface, text, t, hold=4.0):
         """Nom du morceau : monte en fondu, puis s'efface."""
         appear, disappear = 0.7, 0.9
@@ -439,20 +468,21 @@ class Simulation:
             alpha, offset = 1.0 - (t - hold) / disappear, 0
 
         if self._title_cache is None or self._title_cache[0] != text:
-            font = pygame.font.Font(None, max(26, int(self.w * 0.058)))
-            label = text if len(text) <= 30 else text[:29] + "…"
             # Police par défaut de pygame : ASCII uniquement, sinon les
             # caractères manquants s'affichent en carrés.
-            self._title_cache = (text, font.render(label, True, (255, 255, 255)),
-                                 pygame.font.Font(None, max(18, int(self.w * 0.032)))
-                                 .render("BALL ESCAPE", True, (150, 162, 190)))
-        _, title_img, sub_img = self._title_cache
+            self._title_cache = (
+                text, self._fit_title(text),
+                pygame.font.Font(None, max(18, int(self.w * 0.032)))
+                .render("BALL ESCAPE", True, (150, 162, 190)))
+        _, title_lines, sub_img = self._title_cache
 
-        block = pygame.Surface((self.w, title_img.get_height() + sub_img.get_height() + 14))
+        line_h = title_lines[0].get_height()
+        title_h = line_h * len(title_lines)
+        block = pygame.Surface((self.w, title_h + sub_img.get_height() + 14))
         block.set_colorkey((0, 0, 0))
-        block.blit(title_img, ((self.w - title_img.get_width()) // 2, 0))
-        block.blit(sub_img, ((self.w - sub_img.get_width()) // 2,
-                             title_img.get_height() + 12))
+        for i, img in enumerate(title_lines):
+            block.blit(img, ((self.w - img.get_width()) // 2, i * line_h))
+        block.blit(sub_img, ((self.w - sub_img.get_width()) // 2, title_h + 12))
         block.set_alpha(int(255 * max(0.0, min(1.0, alpha))))
         surface.blit(block, (0, int(self.h * 0.085) + offset))
 
