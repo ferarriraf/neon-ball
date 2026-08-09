@@ -28,6 +28,40 @@ class TikTokError(Exception):
     pass
 
 
+# Codes d'erreur TikTok fréquents, traduits en action concrète.
+ERROR_HINTS = {
+    "unaudited_client_can_only_post_to_private_accounts":
+        "Ton app TikTok n'est pas encore auditée : dans cet état, elle ne peut "
+        "publier que sur un compte TikTok EN PRIVÉ. Deux solutions : passer le "
+        "compte en privé (TikTok → Paramètres → Confidentialité → Compte privé) "
+        "pour tester dès maintenant, ou soumettre l'app en revue pour publier "
+        "sur un compte public.",
+    "spam_risk_too_many_posts":
+        "Trop de publications récentes sur ce compte : TikTok bloque "
+        "temporairement. Réessaie dans quelques heures.",
+    "spam_risk_user_banned_from_posting":
+        "Le compte est temporairement bloqué en publication par TikTok.",
+    "reached_active_user_cap":
+        "Quota d'utilisateurs de l'app atteint (limite du mode sandbox).",
+    "url_ownership_unverified":
+        "Le domaine de la Redirect URI n'est pas vérifié côté TikTok.",
+    "access_token_invalid":
+        "Le jeton d'accès est invalide : supprime tokens.json et relance le "
+        "bot pour refaire l'autorisation.",
+    "scope_not_authorized":
+        "Le scope video.publish n'est pas autorisé pour cette app : ajoute le "
+        "produit Content Posting API et coche le scope, puis réautorise.",
+}
+
+
+def _explain(error):
+    """Message d'erreur TikTok enrichi d'une piste de résolution."""
+    code = (error or {}).get("code", "")
+    hint = ERROR_HINTS.get(code)
+    base = f"{code} : {(error or {}).get('message', '')}".strip(" :")
+    return f"{base}\n\n➡️ {hint}" if hint else base
+
+
 class TikTokClient:
     def __init__(self, client_key, client_secret, refresh_token,
                  token_store_path="tokens.json", privacy_level="SELF_ONLY",
@@ -132,7 +166,7 @@ class TikTokClient:
                              json=payload, timeout=30)
         data = resp.json()
         if data.get("error", {}).get("code") not in (None, "ok"):
-            raise TikTokError(f"Init upload refusé : {data['error']}")
+            raise TikTokError(f"Init upload refusé — {_explain(data['error'])}")
         publish_id = data["data"]["publish_id"]
         upload_url = data["data"]["upload_url"]
 
