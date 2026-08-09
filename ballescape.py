@@ -265,7 +265,12 @@ class Simulation:
 
         if ring is not None and dist + BALL_RADIUS >= ring.radius:
             ball_angle = math.atan2(dy, dx)
-            in_gap = abs(_ang_diff(ball_angle, ring.gap_center)) < ring.gap_half * 0.9
+            # Géométrie exacte : la balle passe quand son corps tient
+            # entièrement dans l'ouverture. Le facteur approximatif utilisé
+            # avant faisait rebondir la balle sur du vide au bord du trou.
+            ball_half = math.asin(min(0.99, BALL_RADIUS / ring.radius))
+            opening = max(0.02, ring.gap_half - ball_half)
+            in_gap = abs(_ang_diff(ball_angle, ring.gap_center)) < opening
             if in_gap:
                 if dist - BALL_RADIUS > ring.radius:
                     # Évasion de la couche courante : petit boost de récompense.
@@ -381,6 +386,12 @@ class Simulation:
         white = self._scaled((255, 255, 255), 0.9 * brightness)
         pygame.draw.lines(surface, white, False, pts, 2)
         pygame.draw.aalines(surface, white, False, pts)
+        # Embouts arrondis : les bords de l'ouverture sont nets, on voit
+        # exactement où le mur s'arrête et où la balle peut passer.
+        for end in (pts[0], pts[-1]):
+            spot = (int(end[0]), int(end[1]))
+            pygame.draw.circle(surface, self._scaled(color, 0.5 * brightness), spot, 5)
+            pygame.draw.circle(surface, white, spot, 3)
 
     def _draw_celebrations(self, surface, t):
         for celeb in self.celebrations:
@@ -589,21 +600,28 @@ class Simulation:
         surface.blit(self.background, (0, 0))
         ring_color = self._current_color()
 
-        # Pas de flash plein écran à chaque rebond : à deux notes par seconde,
-        # le clignotement est épuisant à regarder. Le retour visuel de l'impact
-        # reste local (onde teintée + étincelles au point de contact).
-        self._draw_shards(surface, t)
         # L'anneau à franchir brille à fond, les suivants s'estompent :
         # ça donne de la profondeur et guide l'œil.
         for i, ring in enumerate(self.rings[self.current:]):
             self._draw_ring(surface, ring, max(0.42, 1.0 - 0.13 * i))
 
-        # Onde d'impact : discrète, teintée, et jamais blanc pur.
-        for fx, fy, ft in self.flashes:
+        # Tous les effets lumineux (traînée, étincelles, dissipation, ondes,
+        # célébration) sont peints sur un calque noir ajouté ensuite en
+        # BLEND_ADD. Dessinés directement, leurs teintes assombries par le
+        # fondu repeignaient le décor en noir : les étincelles traçaient une
+        # vague sombre à travers toutes les couches de la sphère.
+        if getattr(self, "_fx_layer", None) is None:
+            self._fx_layer = pygame.Surface((self.w, self.h))
+        fx = self._fx_layer
+        fx.fill((0, 0, 0))
+
+        self._draw_shards(fx, t)
+
+        for px, py, ft in self.flashes:
             k = 1.0 - (t - ft) / FLASH_DURATION
             radius = int(BALL_RADIUS + 30 * (1 - k))
-            pygame.draw.circle(surface, self._scaled(ring_color, 0.55 * k),
-                               (int(fx), int(fy)), radius, 2)
+            pygame.draw.circle(fx, self._scaled(ring_color, 0.55 * k),
+                               (int(px), int(py)), radius, 2)
 
         # Traînée : segments épais qui s'affinent, puis pointe lumineuse.
         trail = self.trail
@@ -611,8 +629,12 @@ class Simulation:
             for i in range(1, len(trail)):
                 k = i / len(trail)
                 width = max(1, int(BALL_RADIUS * 1.25 * k))
-                pygame.draw.line(surface, self._scaled(ring_color, 0.16 + 0.5 * k * k),
+                pygame.draw.line(fx, self._scaled(ring_color, 0.16 + 0.5 * k * k),
                                  trail[i - 1], trail[i], width)
+
+        self._draw_sparks(fx, t)
+        self._draw_celebrations(fx, t)
+        surface.blit(fx, (0, 0), special_flags=pygame.BLEND_ADD)
 
         # Halo doux de la couleur des anneaux + cœur blanc net.
         pos = (int(self.bx), int(self.by))
@@ -622,6 +644,4 @@ class Simulation:
         pygame.draw.circle(surface, (255, 255, 255), pos, BALL_RADIUS)
         pygame.draw.circle(surface, self._scaled(ring_color, 0.55), pos, BALL_RADIUS, 2)
 
-        self._draw_sparks(surface, t)
-        self._draw_celebrations(surface, t)
         self._draw_counter(surface)
