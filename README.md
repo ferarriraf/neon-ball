@@ -1,4 +1,6 @@
-# bot-scrap — Générateur de vidéos "Ball Escape" → TikTok
+# Neon Escape
+
+> Générateur de vidéos "ball escape" musicales, publiées automatiquement sur TikTok.
 
 Bot Python qui **génère** des vidéos ball escape (balle qui rebondit dans des anneaux
 néon rotatifs et s'échappe couche par couche) et les publie sur TikTok via l'**API
@@ -9,9 +11,9 @@ officielle Content Posting**.
 - **2 publications/jour** par défaut : une vers **10h** et une vers **17h** (heure de
   Paris), chacune décalée aléatoirement dans une fenêtre de 60 min. Planifié par le bot
   lui-même : aucun cron nécessaire.
-- Vidéos verticales **720×1280, 30 fps, ~68 s** par défaut (réglable — passe à
-  1080×1920/60 fps/`"encoder_preset": "veryfast"` si le serveur a ≥ 1 Go de RAM),
-  couleur néon différente à chaque nouveau jeu d'anneaux.
+- Vidéos verticales **720×1280, 30 fps** (réglable), qui se terminent sur une sphère
+  entièrement franchie une fois la minute dépassée — dégradé de teintes néon différent
+  à chaque nouvelle sphère.
 - **Descriptions en rotation** : le bot alterne entre les textes de la liste `captions`
   de `config.json` (`{song}` est remplacé par le nom du fichier musique).
 
@@ -43,7 +45,11 @@ Copie `config.example.json` → `config.json` :
 | `schedule.post_times` / `random_window_minutes` / `timezone` | Créneaux de publication |
 | `music.dir` | Dossier des musiques (`musics/` par défaut) |
 | `music.note_duration_ms` | Durée de chaque note jouée par la balle (320 ms) |
-| `video.width/height/fps/duration_seconds/rings` | Format de la vidéo générée |
+| `video.width/height/fps/rings` | Format de la vidéo générée |
+| `video.min_duration_seconds` / `max_duration_seconds` | Durée minimale (60 s) et garde-fou |
+| `tiktok.posting_enabled` | `false` pour générer sans publier (mode test Discord) |
+| `discord_webhook_url` | Notifications et archivage des vidéos (facultatif) |
+| `github_token` / `github_repo` | Auto-update du code au démarrage (repo privé) |
 | `captions` | Liste des descriptions TikTok, utilisées en rotation |
 
 `config.json` contient tes secrets : il est dans `.gitignore`, **ne le commit pas**.
@@ -54,8 +60,9 @@ Copie `config.example.json` → `config.json` :
 2. Dépose les fichiers du repo via le **gestionnaire de fichiers** du panel
    (Code → Download ZIP sur GitHub, upload du zip, "Unarchive").
 3. Crée `config.json` (voir ci-dessus).
-4. Crée un dossier **`musics/`** et dépose-y tes musiques (`.mp3`, `.wav`, `.m4a`,
-   `.ogg`, `.flac`) — au moins une, tu peux en rajouter à tout moment.
+4. Crée un dossier **`musics/`** et dépose-y tes musiques. Les fichiers **`.mid`** sont
+   recommandés : la mélodie est extraite et jouée note par note. Les formats audio
+   (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`) sont aussi acceptés (découpage en tranches).
 5. Commande de démarrage, selon ce que ton panel accepte :
 
 ```bash
@@ -87,5 +94,5 @@ Le bot confirme `✔ Connexion TikTok réussie` et devient autonome.
 - Aucun ffmpeg à installer : le binaire est fourni par le paquet pip `imageio-ffmpeg`.
 - `state.json` mémorise les publications et la rotation des descriptions ;
   `tokens.json` garde les tokens TikTok rafraîchis automatiquement.
-- L'ancien mode repost Instagram (`instagram_source.py`, dépendance `instaloader`) est
-  désactivé mais conservé dans le repo.
+- Le code se met à jour tout seul depuis GitHub à chaque démarrage : pousser puis
+  redémarrer le serveur suffit à déployer.

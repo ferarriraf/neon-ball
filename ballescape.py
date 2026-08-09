@@ -62,8 +62,9 @@ TRAIL_LENGTH = 34         # positions gardées pour la traînée (sous-pas physi
 SPARK_COUNT = 9           # étincelles projetées à chaque rebond
 SPARK_LIFE = 0.45
 SPARK_GRAVITY = 1100.0
-SHARD_COUNT = 9           # morceaux d'un anneau qui explose
-SHARD_LIFE = 1.0
+RIPPLE_LIFE = 0.95        # durée de dissipation d'un anneau franchi
+RIPPLE_EXPANSION = 0.13   # dilatation de l'anneau pendant qu'il s'efface
+MOTE_COUNT = 30           # particules qui se détachent de l'anneau
 HUE_SPREAD = 0.13         # écart de teinte entre le 1er et le dernier anneau
 SHAKE_DURATION = 0.45
 SHAKE_AMPLITUDE = 11.0
@@ -93,17 +94,26 @@ class Ring:
         self.color = color
 
 
-class Shard:
-    """Morceau d'anneau projeté quand la balle franchit une couche."""
+class Ripple:
+    """Anneau franchi : il se dilate, s'affine et s'évapore en particules.
 
-    def __init__(self, a0, a1, radius, color, t, rng):
-        self.a0 = a0
-        self.a1 = a1
-        self.radius = radius
-        self.color = color
+    Bien plus élégant qu'une explosion en gros morceaux : la couche garde sa
+    forme une fraction de seconde, s'ouvre, puis se dissout.
+    """
+
+    def __init__(self, ring, t, rng):
+        self.radius = ring.radius
+        self.gap_center = ring.gap_center
+        self.gap_half = ring.gap_half
+        self.spin = ring.speed
+        self.color = ring.color
         self.t = t
-        self.spin = rng.uniform(-2.2, 2.2)
-        self.drift = rng.uniform(40, 130)
+        span = 2 * math.pi - 2 * ring.gap_half
+        self.motes = [
+            (ring.gap_center + ring.gap_half + span * (i + rng.uniform(0.1, 0.9)) / MOTE_COUNT,
+             rng.uniform(0.5, 1.6), rng.uniform(0.35, 1.0))
+            for i in range(MOTE_COUNT)
+        ]
 
 
 class Celebration:
@@ -229,13 +239,8 @@ class Simulation:
             ])
 
     def _shatter(self, ring, t):
-        """Découpe l'anneau franchi en morceaux qui partent en tournoyant."""
-        start = ring.gap_center + ring.gap_half
-        span = 2 * math.pi - 2 * ring.gap_half
-        for i in range(SHARD_COUNT):
-            a0 = start + span * i / SHARD_COUNT
-            a1 = start + span * (i + 0.82) / SHARD_COUNT
-            self.shards.append(Shard(a0, a1, ring.radius, ring.color, t, self.rng))
+        """L'anneau franchi entame sa dissipation."""
+        self.shards.append(Ripple(ring, t, self.rng))
 
     def step(self, dt, t):
         """Avance la physique de dt ; retourne une liste de (temps, type)."""
@@ -336,7 +341,7 @@ class Simulation:
         if len(self.trail) > TRAIL_LENGTH:
             del self.trail[:len(self.trail) - TRAIL_LENGTH]
 
-        self.shards = [s for s in self.shards if t - s.t < SHARD_LIFE]
+        self.shards = [s for s in self.shards if t - s.t < RIPPLE_LIFE]
         self.sparks = [s for s in self.sparks if t - s[4] < SPARK_LIFE]
         self.flashes = [f for f in self.flashes if t - f[2] < FLASH_DURATION]
         self.celebrations = [c for c in self.celebrations
@@ -497,20 +502,47 @@ class Simulation:
         surface.blit(block, (0, int(self.h * 0.085) + offset))
 
     def _draw_shards(self, surface, t):
-        for shard in self.shards:
-            age = (t - shard.t) / SHARD_LIFE
-            fade = max(0.0, 1.0 - age) ** 1.5
-            radius = shard.radius + shard.drift * age
-            offset = shard.spin * age
-            n = max(4, int((shard.a1 - shard.a0) * radius / 6))
-            pts = []
-            for i in range(n + 1):
-                a = shard.a0 + offset + (shard.a1 - shard.a0) * i / n
-                pts.append((self.cx + math.cos(a) * radius,
-                            self.cy + math.sin(a) * radius))
-            pygame.draw.lines(surface, self._scaled(shard.color, 0.35 * fade),
-                              False, pts, 9)
-            pygame.draw.lines(surface, self._scaled(shard.color, fade), False, pts, 3)
+        """Dissipation des anneaux franchis : dilatation puis évaporation."""
+        for rip in self.shards:
+            age = (t - rip.t) / RIPPLE_LIFE
+            ease = 1 - (1 - age) ** 3          # rapide au début, puis ralentit
+            fade = max(0.0, 1.0 - age) ** 1.7
+
+            # L'anneau s'élargit, son ouverture bâille, son trait s'affine.
+            radius = rip.radius * (1 + RIPPLE_EXPANSION * ease)
+            gap_half = min(math.pi * 0.95, rip.gap_half + 0.9 * ease)
+            start = rip.gap_center + rip.spin * age * 0.6 + gap_half
+            span = 2 * math.pi - 2 * gap_half
+            if span > 0.05 and fade > 0.02:
+                n = max(12, min(480, int(span * radius / 5)))
+                pts = [(self.cx + math.cos(start + span * i / n) * radius,
+                        self.cy + math.sin(start + span * i / n) * radius)
+                       for i in range(n + 1)]
+                width = max(1, int(4 * (1 - ease)))
+                pygame.draw.lines(surface, self._scaled(rip.color, 0.22 * fade),
+                                  False, pts, width * 3 + 4)
+                pygame.draw.lines(surface, self._scaled(rip.color, fade),
+                                  False, pts, width)
+                if fade > 0.5:
+                    pygame.draw.aalines(
+                        surface, self._scaled((255, 255, 255), (fade - 0.5) * 1.4),
+                        False, pts)
+
+            # Particules qui se détachent et s'éloignent en s'éteignant.
+            for angle, drift, life in rip.motes:
+                k = age / life
+                if k >= 1:
+                    continue
+                d = radius + rip.radius * 0.20 * drift * k
+                a = angle + rip.spin * age * 0.6
+                px = self.cx + math.cos(a) * d
+                py = self.cy + math.sin(a) * d
+                mote_fade = (1 - k) ** 1.5
+                size = max(1, int(3.5 * mote_fade))
+                pygame.draw.circle(surface, self._scaled(rip.color, 0.5 * mote_fade),
+                                   (int(px), int(py)), size + 2)
+                pygame.draw.circle(surface, self._scaled(rip.color, mote_fade),
+                                   (int(px), int(py)), size)
 
     def _draw_sparks(self, surface, t):
         for x, y, _, _, born, color in self.sparks:

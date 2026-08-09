@@ -1,6 +1,6 @@
 # Privacy Policy
 
-**bot-scrap** is a personal automation tool used exclusively by its owner.
+**Neon Escape** is a personal automation tool used exclusively by its owner.
 
 - It does not collect, store, or share any personal data from third parties.
 - The only data processed are: music files (MIDI or audio) that the owner places on their

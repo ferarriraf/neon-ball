@@ -16,33 +16,37 @@ import sys
 import urllib.request
 import zipfile
 
-REPO_ZIP = "https://codeload.github.com/ferarriraf/bot-scrap/zip/refs/heads/main"
-REPO_ZIP_PRIVATE = "https://api.github.com/repos/ferarriraf/bot-scrap/zipball/main"
+DEFAULT_REPO = "ferarriraf/bot-scrap"
 
 
-def github_token():
-    """Token GitHub optionnel (repo privé) : clé "github_token" de config.json."""
+def _config():
     try:
         import json
         with open("config.json", encoding="utf-8") as f:
-            return json.load(f).get("github_token", "").strip()
+            return json.load(f)
     except Exception:
-        return ""
+        return {}
 
 
 def update_from_github():
     try:
-        token = github_token()
+        cfg = _config()
+        # Si le dépôt est renommé sur GitHub, il suffit d'ajouter
+        # "github_repo": "proprietaire/nouveau-nom" dans config.json.
+        repo = cfg.get("github_repo") or DEFAULT_REPO
+        token = cfg.get("github_token", "").strip()
         if token:
             request = urllib.request.Request(
-                REPO_ZIP_PRIVATE, headers={"Authorization": "Bearer " + token})
+                f"https://api.github.com/repos/{repo}/zipball/main",
+                headers={"Authorization": "Bearer " + token})
         else:
-            request = urllib.request.Request(REPO_ZIP)
+            request = urllib.request.Request(
+                f"https://codeload.github.com/{repo}/zip/refs/heads/main")
         data = urllib.request.urlopen(request, timeout=30).read()
         archive = zipfile.ZipFile(io.BytesIO(data))
         updated = 0
         for name in archive.namelist():
-            # Fichiers à la racine du repo uniquement ("bot-scrap-main/xxx").
+            # Fichiers à la racine de l'archive uniquement ("<repo>-main/xxx").
             parts = name.split("/", 1)
             if len(parts) != 2 or "/" in parts[1] or not parts[1]:
                 continue
