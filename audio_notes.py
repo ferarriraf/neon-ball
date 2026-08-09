@@ -77,7 +77,7 @@ def build_note_track(pcm, events, note_duration_ms, total_duration_s,
             _mix(track, synth_fanfare(), start)
             continue
         if pos + note_samples > len(pcm):
-            pos = offset  # la musique est épuisée : on reboucle
+            break  # morceau épuisé : on ne le redémarre pas en cours de vidéo
         note = (pcm[pos:pos + note_samples].astype(np.float32) * envelope).astype(np.int32)
         pos += note_samples
         _mix(track, note, start)
@@ -271,7 +271,9 @@ def build_midi_track(freqs, events, note_duration_ms, total_duration_s):
         if kind == "complete":
             _mix(track, synth_fanfare(), start)
             continue
-        _mix(track, synth_note(freqs[index % len(freqs)], duration), start)
+        if index >= len(freqs):
+            break  # mélodie terminée : on ne la rejoue pas depuis le début
+        _mix(track, synth_note(freqs[index], duration), start)
         index += 1
 
     np.clip(track, -32768, 32767, out=track)
@@ -288,23 +290,31 @@ def frame_spectrum(pcm, fps, frame_count, bands=22):
     mono = pcm.mean(axis=1).astype(np.float32)
     window = 2048
     hann = np.hanning(window).astype(np.float32)
-    edges = np.geomspace(60, 9000, bands + 1) * window / SAMPLE_RATE
+    # Plage resserrée sur le contenu réel des notes : au-delà, les bandes ne
+    # portent que du bruit numérique.
+    edges = np.geomspace(60, 5000, bands + 1) * window / SAMPLE_RATE
     edges = np.clip(edges.astype(int), 1, window // 2 - 1)
 
     raw = np.zeros((frame_count, bands), dtype=np.float32)
     for i in range(frame_count):
-        start = int(i / fps * SAMPLE_RATE)
-        seg = mono[start:start + window]
+        # Fenêtre centrée sur l'image : sinon l'analyse regarde 46 ms en avant
+        # et les barres s'allument avant qu'on entende la note.
+        start = int(i / fps * SAMPLE_RATE) - window // 2
+        seg = mono[max(0, start):max(0, start) + window]
         if len(seg) < window:
-            seg = np.pad(seg, (0, window - len(seg)))
+            seg = np.pad(seg, (window - len(seg), 0) if start < 0
+                         else (0, window - len(seg)))
         mag = np.abs(np.fft.rfft(seg * hann))
         for b in range(bands):
             lo, hi = edges[b], max(edges[b] + 1, edges[b + 1])
             raw[i, b] = mag[lo:hi].mean()
 
-    # Normalisation par bande : les aigus, bien plus faibles que les graves,
-    # restent visibles au lieu d'être écrasés à zéro.
-    band_peaks = np.maximum(raw.max(axis=0), 1e-6)
+    # Normalisation par bande pour que les aigus restent visibles, MAIS avec
+    # un plancher : sans lui, une bande qui ne contient rien est divisée par
+    # son propre maximum minuscule et le moindre résidu numérique devient une
+    # barre pleine — la dernière barre s'allumait ainsi en plein silence.
+    global_peak = max(raw.max(), 1e-6)
+    band_peaks = np.maximum(raw.max(axis=0), global_peak * 0.05)
     raw = np.sqrt(raw / band_peaks)  # échelle perceptuelle
     # Lissage entre bandes voisines pour un visuel continu.
     raw[:, 1:-1] = (raw[:, :-2] + 2 * raw[:, 1:-1] + raw[:, 2:]) / 4
