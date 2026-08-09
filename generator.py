@@ -117,7 +117,8 @@ def generate_video(config, out_dir, song_path=None):
     # court épilogue pour laisser voir la célébration et le fondu).
     # La graine est conservée pour rejouer exactement la même partie au rendu.
     seed = random.randrange(1 << 30)
-    sim = Simulation(width, height, ring_count, random.Random(seed))
+    sim = Simulation(width, height, ring_count, random.Random(seed),
+                     finish_after=min_duration)
     events = []
     end_time = None
     total_frames = int(max_duration * fps)
@@ -168,7 +169,8 @@ def generate_video(config, out_dir, song_path=None):
         stdin=subprocess.PIPE, stderr=subprocess.PIPE,
     )
 
-    sim = Simulation(width, height, ring_count, random.Random(seed))
+    sim = Simulation(width, height, ring_count, random.Random(seed),
+                     finish_after=min_duration)
     surface = pygame.Surface((width, height))
     log.info("Rendu de %.1fs à %dx%d %dfps (%d frames)...",
              duration, width, height, fps, total_frames)

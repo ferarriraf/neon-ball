@@ -43,6 +43,10 @@ MAX_SPEED = 1600.0
 # Anti-blocage : la balle doit toujours repartir franchement de la paroi,
 # sinon la gravité la replaque aussitôt et elle mitraille sur place.
 MIN_SEPARATION_SPEED = 300.0
+# ... et toujours repartir de côté : sans vitesse tangentielle, elle
+# rebondit sur place au fond (ou fait l'aller-retour horizontal sur un
+# flanc) et le jeu s'arrête d'avancer.
+MIN_TANGENT_SPEED = 270.0
 BOUNCE_COOLDOWN = 0.035   # deux rebonds ne peuvent pas s'enchaîner plus vite
 WALL_CLEARANCE = 2.0      # on la repose légèrement en retrait de la paroi
 
@@ -113,13 +117,22 @@ class Celebration:
 
 
 class Simulation:
-    def __init__(self, width, height, ring_count, rng):
+    def __init__(self, width, height, ring_count, rng, finish_after=None):
+        # finish_after : passé ce temps, la sphère terminée n'est pas
+        # remplacée — la vidéo s'achève sur la célébration.
+        self.finish_after = finish_after
+        self.finished = False
+        self.last_color = NEON_PALETTE[0]
         self.w = width
         self.h = height
         self.cx = width / 2
         self.cy = height / 2
         self.ring_count = ring_count
         self.rng = rng
+        # Générateur séparé pour les effets de rendu : piocher dans self.rng
+        # pendant le dessin décalerait la suite de nombres aléatoires et la
+        # partie rejouée au rendu ne serait plus celle qui a produit l'audio.
+        self.fx_rng = random.Random(0xB011)
         self.max_radius = min(width, height) / 2 - 40
         self.flashes = []  # (x, y, t)
         self.shards = []
@@ -162,8 +175,14 @@ class Simulation:
             pygame.draw.circle(self.ball_glow, (v, v, v), (glow_r, glow_r), r)
         self.glow_r = glow_r
 
+    def _current_color(self):
+        if not self.rings:
+            return self.last_color
+        return self.rings[min(self.current, len(self.rings) - 1)].color
+
     def _new_ring_set(self):
         base_color = self.rng.choice(NEON_PALETTE)
+        self.last_color = base_color
         direction = self.rng.choice((-1, 1))
         base = BALL_RADIUS * 2 + 100
         spacing = (self.max_radius - base) / max(1, self.ring_count - 1)
@@ -230,12 +249,12 @@ class Simulation:
         self.bx += self.vx * dt
         self.by += self.vy * dt
 
-        ring = self.rings[self.current]
+        ring = self.rings[self.current] if not self.finished else None
         dx = self.bx - self.cx
         dy = self.by - self.cy
         dist = math.hypot(dx, dy) or 0.001
 
-        if dist + BALL_RADIUS >= ring.radius:
+        if ring is not None and dist + BALL_RADIUS >= ring.radius:
             ball_angle = math.atan2(dy, dx)
             in_gap = abs(_ang_diff(ball_angle, ring.gap_center)) < ring.gap_half * 0.9
             if in_gap:
@@ -256,7 +275,14 @@ class Simulation:
                                         self.rings[-1].color, self.rng))
                         self.shake_until = t + SHAKE_DURATION
                         events.append((t, "complete"))
-                        self._new_ring_set()
+                        if self.finish_after is not None and t >= self.finish_after:
+                            # Dernière sphère : plus rien ne se recharge, on
+                            # laisse la célébration puis le fondu conclure.
+                            self.finished = True
+                            self.rings = []
+                            self.current = 0
+                        else:
+                            self._new_ring_set()
             else:
                 nx, ny = dx / dist, dy / dist
                 outward = self.vx * nx + self.vy * ny
@@ -265,6 +291,12 @@ class Simulation:
                     # composante tangentielle légèrement freinée.
                     tx, ty = -ny, nx
                     vt = (self.vx * tx + self.vy * ty) * TANGENT_FRICTION
+                    if abs(vt) < MIN_TANGENT_SPEED:
+                        # Relance latérale : la balle repart le long de la
+                        # paroi au lieu de sautiller au même endroit.
+                        sign = self.rng.choice((-1, 1)) if abs(vt) < 1 else \
+                            (1 if vt > 0 else -1)
+                        vt = sign * MIN_TANGENT_SPEED
                     # La normale repart toujours assez fort pour décoller de la
                     # paroi : sinon la gravité la replaque et la balle vibre
                     # sur place au lieu de rebondir.
@@ -372,7 +404,7 @@ class Simulation:
 
     def draw_spectrum(self, surface, levels):
         """Visualiseur audio : barres symétriques en bas de l'image."""
-        color = self.rings[min(self.current, len(self.rings) - 1)].color
+        color = self._current_color()
         n = len(levels)
         margin = int(self.w * 0.08)
         usable = self.w - 2 * margin
@@ -451,6 +483,8 @@ class Simulation:
 
     def _draw_counter(self, surface):
         """Compteur discret des couches restantes."""
+        if self.finished:
+            return  # plus de sphère : on ne montre pas "0 / 0"
         remaining = len(self.rings) - self.current
         text = f"{remaining} / {len(self.rings)}"
         img = self._text_cache.get(text)
@@ -467,8 +501,8 @@ class Simulation:
             self._draw_scene(work, t)
             k = (self.shake_until - t) / SHAKE_DURATION
             amp = SHAKE_AMPLITUDE * k * k
-            dx = int(self.rng.uniform(-amp, amp))
-            dy = int(self.rng.uniform(-amp, amp))
+            dx = int(self.fx_rng.uniform(-amp, amp))
+            dy = int(self.fx_rng.uniform(-amp, amp))
             surface.fill((0, 0, 0))
             surface.blit(work, (dx, dy))
         else:
@@ -481,7 +515,7 @@ class Simulation:
 
     def _draw_scene(self, surface, t):
         surface.blit(self.background, (0, 0))
-        ring_color = self.rings[min(self.current, len(self.rings) - 1)].color
+        ring_color = self._current_color()
 
         # Pas de flash plein écran à chaque rebond : à deux notes par seconde,
         # le clignotement est épuisant à regarder. Le retour visuel de l'impact
