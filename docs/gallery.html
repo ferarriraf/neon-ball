@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gallery — Neon Escape</title>
+<meta name="description" content="What a Neon Escape video looks like: the play area, the moment a ring is cleared, and the celebration when a sphere is completed.">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="./"><span class="dot"></span> Neon Escape</a>
+    <nav class="site">
+      <a href="./">Overview</a>
+      <a href="./how-it-works.html">How it works</a>
+      <a href="./gallery.html" aria-current="page">Gallery</a>
+      <a href="./faq.html">FAQ</a>
+      <a href="./terms.html">Terms</a>
+      <a href="./privacy.html">Privacy</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1>What a video looks like</h1>
+  <p class="lead">Three moments from a run, drawn here with the same shapes and
+    colours the renderer uses. Each sphere picks its own neon hue, and the rings
+    of a sphere drift across a small hue range from the inside out.</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>The play area</h3>
+      <svg viewBox="0 0 200 300" class="stage" role="img"
+           aria-label="A ball inside concentric neon rings, with a counter and a spectrum analyser">
+        <defs><filter id="g1" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter></defs>
+        <g filter="url(#g1)" fill="none">
+          <circle cx="100" cy="130" r="78" stroke="#1d7b46" stroke-width="3" stroke-dasharray="380 110"/>
+          <circle cx="100" cy="130" r="63" stroke="#25a25a" stroke-width="3" stroke-dasharray="300 95"/>
+          <circle cx="100" cy="130" r="48" stroke="#2fc76e" stroke-width="3" stroke-dasharray="225 80"/>
+          <circle cx="100" cy="130" r="33" stroke="#35e07f" stroke-width="3" stroke-dasharray="150 62"/>
+        </g>
+        <path d="M118 158 L132 172" stroke="#35e07f" stroke-width="5" stroke-linecap="round" opacity=".55"/>
+        <circle cx="136" cy="176" r="7" fill="#fff" filter="url(#g1)"/>
+        <text x="100" y="252" fill="#c6cee0" font-size="13" text-anchor="middle"
+              font-family="system-ui">6 / 10</text>
+        <g fill="#35e07f">
+          <rect x="24" y="272" width="7" height="6" rx="3"/>
+          <rect x="36" y="266" width="7" height="12" rx="3"/>
+          <rect x="48" y="260" width="7" height="18" rx="3"/>
+          <rect x="60" y="268" width="7" height="10" rx="3"/>
+          <rect x="72" y="256" width="7" height="22" rx="3"/>
+          <rect x="84" y="264" width="7" height="14" rx="3"/>
+          <rect x="96" y="270" width="7" height="8" rx="3"/>
+          <rect x="108" y="258" width="7" height="20" rx="3"/>
+          <rect x="120" y="266" width="7" height="12" rx="3"/>
+          <rect x="132" y="272" width="7" height="6" rx="3"/>
+          <rect x="144" y="262" width="7" height="16" rx="3"/>
+          <rect x="156" y="270" width="7" height="8" rx="3"/>
+        </g>
+      </svg>
+      <p>The ball, its trail, the rings left to clear, a counter and the
+        spectrum analyser reacting to the soundtrack.</p>
+    </div>
+
+    <div class="card">
+      <h3>A ring gives way</h3>
+      <svg viewBox="0 0 200 300" class="stage" role="img"
+           aria-label="A neon ring dissolving into drifting particles after being cleared">
+        <defs><filter id="g2" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter></defs>
+        <g filter="url(#g2)" fill="none">
+          <circle cx="100" cy="140" r="80" stroke="#1d7b46" stroke-width="3" stroke-dasharray="390 110"/>
+          <circle cx="100" cy="140" r="64" stroke="#25a25a" stroke-width="3" stroke-dasharray="305 95"/>
+          <circle cx="100" cy="140" r="46" stroke="#2fc76e" stroke-width="2" stroke-dasharray="130 90" opacity=".45"/>
+        </g>
+        <g fill="#2fc76e" opacity=".85">
+          <circle cx="62" cy="112" r="2.4"/><circle cx="80" cy="98" r="2"/>
+          <circle cx="104" cy="94" r="2.6"/><circle cx="128" cy="104" r="2"/>
+          <circle cx="142" cy="126" r="2.4"/><circle cx="140" cy="156" r="2"/>
+          <circle cx="122" cy="178" r="2.6"/><circle cx="94" cy="186" r="2"/>
+          <circle cx="68" cy="172" r="2.4"/><circle cx="56" cy="146" r="2"/>
+        </g>
+        <circle cx="112" cy="120" r="7" fill="#fff" filter="url(#g2)"/>
+      </svg>
+      <p>The cleared layer dilates, its opening yawns, and it evaporates into
+        motes. A chime marks the moment — the melody itself never skips a note.</p>
+    </div>
+
+    <div class="card">
+      <h3>Sphere completed</h3>
+      <svg viewBox="0 0 200 300" class="stage" role="img"
+           aria-label="A shockwave and sparks celebrating a completed sphere">
+        <defs><filter id="g3" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter></defs>
+        <g filter="url(#g3)" fill="none">
+          <circle cx="100" cy="140" r="52" stroke="#4fd1ff" stroke-width="3" opacity=".9"/>
+          <circle cx="100" cy="140" r="76" stroke="#4fd1ff" stroke-width="2" opacity=".45"/>
+          <circle cx="100" cy="140" r="96" stroke="#4fd1ff" stroke-width="1.2" opacity=".2"/>
+        </g>
+        <g fill="#9ae7ff">
+          <circle cx="100" cy="58" r="3"/><circle cx="156" cy="86" r="2.6"/>
+          <circle cx="180" cy="140" r="3"/><circle cx="152" cy="196" r="2.6"/>
+          <circle cx="100" cy="222" r="3"/><circle cx="46" cy="194" r="2.6"/>
+          <circle cx="22" cy="140" r="3"/><circle cx="48" cy="86" r="2.6"/>
+        </g>
+        <circle cx="100" cy="140" r="9" fill="#fff" filter="url(#g3)"/>
+      </svg>
+      <p>Every ring cleared: a shockwave spreads, sparks fly and a fanfare
+        plays. Then a fresh sphere appears in a new colour — or the video ends.</p>
+    </div>
+  </div>
+
+  <h2>Two videos a day</h2>
+  <p class="muted">One clip goes out in the late morning and one in the late
+    afternoon, each at a randomised minute inside its window so the account
+    never posts on a metronome. The description rotates through a short list, so
+    two consecutive videos never carry the same caption.</p>
+
+  <p><a href="./faq.html">Questions? →</a></p>
+</main>
+
+<footer class="site">
+  <div class="bar">
+    Neon Escape — a personal project. ·
+    <a href="./terms.html">Terms of Service</a> ·
+    <a href="./privacy.html">Privacy Policy</a> ·
+    <a href="./faq.html">FAQ</a>
+  </div>
+</footer>
+</body>
+</html>

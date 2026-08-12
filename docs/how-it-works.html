@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works — Neon Escape</title>
+<meta name="description" content="The pipeline behind a Neon Escape video: melody extraction, physics simulation, soundtrack, rendering and publishing.">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="./"><span class="dot"></span> Neon Escape</a>
+    <nav class="site">
+      <a href="./">Overview</a>
+      <a href="./how-it-works.html" aria-current="page">How it works</a>
+      <a href="./gallery.html">Gallery</a>
+      <a href="./faq.html">FAQ</a>
+      <a href="./terms.html">Terms</a>
+      <a href="./privacy.html">Privacy</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1>How a video is built</h1>
+  <p class="lead">Every clip goes through the same five stages. The whole run is
+    deterministic: the same seed and the same music always produce the same
+    video, which is what lets the soundtrack line up perfectly with the image.</p>
+
+  <ol class="steps">
+    <li>
+      <strong>Pick the music</strong>
+      <p class="muted">The playlist is shuffled once when the tool starts, then
+        played in order, so every track is used before any of them repeats. MIDI
+        files are preferred; ordinary audio files are also accepted.</p>
+    </li>
+    <li>
+      <strong>Extract the melody</strong>
+      <p class="muted">A MIDI file holds several parts at once. The tool scores
+        each channel on how high and how varied it is, discards anything too
+        sparse to be a theme, and keeps the top note whenever several sound
+        together. A loop hammered at the very start — a typical intro ostinato —
+        is skipped so the recognisable tune begins straight away. The result is
+        shifted by whole octaves into a register a phone speaker can actually
+        reproduce.</p>
+    </li>
+    <li>
+      <strong>Simulate the run</strong>
+      <p class="muted">The physics runs first, with no drawing at all: gravity,
+        damped bounces, wall friction. Each impact, each ring cleared and each
+        sphere completed is recorded with its exact timestamp. The simulation
+        stops on the first completed sphere past the minimum length.</p>
+    </li>
+    <li>
+      <strong>Build the soundtrack</strong>
+      <p class="muted">Those timestamps drive the audio. A bounce plays the next
+        note of the melody; clearing a ring adds a chime without consuming a
+        note; completing a sphere triggers a fanfare. Every note is synthesised
+        with a short attack and a long decay, so the tail bridges the gap to the
+        next bounce.</p>
+    </li>
+    <li>
+      <strong>Render and publish</strong>
+      <p class="muted">The same run is replayed, this time drawing each frame —
+        neon rings, trail, sparks, spectrum analyser, title card, fades — and
+        piping raw frames into the encoder. The finished file is uploaded
+        through TikTok's official Content Posting API.</p>
+    </li>
+  </ol>
+
+  <h2>Inside the simulation</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Bounces</h3>
+      <p>The velocity is reflected around the wall normal, damped by
+        restitution, with a little tangential friction. Nothing is scripted.</p>
+    </div>
+    <div class="card">
+      <h3>Never stuck</h3>
+      <p>The bottom of a ring is a bowl. Rather than adding a fixed impulse —
+        which would fire the ball off a side wall — the tool tops the ball's
+        <em>energy</em> up to what it takes to climb back out from wherever it
+        landed. Large at the bottom, near zero high up.</p>
+    </div>
+    <div class="card">
+      <h3>Never spinning in place</h3>
+      <p>If a bounce leaves almost no sideways motion, the velocity is rotated —
+        not increased — so at least a share of it runs along the wall.</p>
+    </div>
+    <div class="card">
+      <h3>Openings</h3>
+      <p>The ball passes when its body genuinely fits through the gap, computed
+        from its radius and the ring's, so it never bounces off empty space.</p>
+    </div>
+  </div>
+
+  <h2>Rendering</h2>
+  <p class="muted">Frames are drawn onto in-memory surfaces — the server has no
+    display. Each neon band is a single filled polygon with an anti-aliased
+    outline: drawn as a thick polyline instead, the joints leave notches that
+    crawl as the ring turns and the whole circle appears to shimmer. Sparks,
+    trail and dissolving rings are composited additively, so a fading particle
+    adds light rather than painting dark pixels over the scene.</p>
+
+  <p><a href="./gallery.html">See what it looks like →</a></p>
+</main>
+
+<footer class="site">
+  <div class="bar">
+    Neon Escape — a personal project. ·
+    <a href="./terms.html">Terms of Service</a> ·
+    <a href="./privacy.html">Privacy Policy</a> ·
+    <a href="./faq.html">FAQ</a>
+  </div>
+</footer>
+</body>
+</html>

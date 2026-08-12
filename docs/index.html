@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Neon Escape — animated ball-escape videos that play a melody</title>
+<meta name="description" content="Neon Escape renders original ball-escape animations whose bounces play a melody, and publishes them to its owner's TikTok account.">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="./"><span class="dot"></span> Neon Escape</a>
+    <nav class="site">
+      <a href="./" aria-current="page">Overview</a>
+      <a href="./how-it-works.html">How it works</a>
+      <a href="./gallery.html">Gallery</a>
+      <a href="./faq.html">FAQ</a>
+      <a href="./terms.html">Terms</a>
+      <a href="./privacy.html">Privacy</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div>
+      <h1>The ball plays the music.</h1>
+      <p class="lead">Neon Escape is a self-hosted tool that renders original
+        “ball escape” animations from code. A ball bounces inside rotating neon
+        rings and breaks out layer by layer — and every single bounce plays the
+        next note of a melody, so the animation performs the tune as it goes.</p>
+      <p class="muted">It runs unattended on a private server and publishes the
+        videos it makes to its owner's own TikTok account, twice a day.</p>
+    </div>
+    <svg class="stage" viewBox="0 0 300 300" role="img"
+         aria-label="Animation of a ball bouncing inside rotating neon rings">
+      <defs>
+        <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <g filter="url(#glow)" fill="none" stroke-linecap="round">
+        <circle class="spin-slow" cx="150" cy="150" r="118" stroke="#1f8f4d"
+                stroke-width="4" stroke-dasharray="560 180"/>
+        <circle class="spin-rev"  cx="150" cy="150" r="96"  stroke="#27b562"
+                stroke-width="4" stroke-dasharray="450 155"/>
+        <circle class="spin-fast" cx="150" cy="150" r="74"  stroke="#35e07f"
+                stroke-width="4" stroke-dasharray="340 125"/>
+        <circle class="spin-rev"  cx="150" cy="150" r="52"  stroke="#7bf0a8"
+                stroke-width="4" stroke-dasharray="230 100"/>
+      </g>
+      <circle class="bounce" cx="150" cy="150" r="9" fill="#fff" filter="url(#glow)"/>
+    </svg>
+  </section>
+
+  <h2>What makes a video</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>A melody, not a soundtrack</h3>
+      <p>The tool reads a MIDI file, isolates the lead voice and plays it one
+        note per bounce. Nothing is sampled: each note is synthesised on the fly.</p>
+    </div>
+    <div class="card">
+      <h3>Real physics</h3>
+      <p>Gravity, damped bounces and friction. Speed rises and falls naturally
+        instead of being scripted, so no two videos ever look the same.</p>
+    </div>
+    <div class="card">
+      <h3>Layer by layer</h3>
+      <p>Each ring has a rotating opening. Clearing one dissolves it into
+        drifting motes; clearing a whole sphere sets off a shockwave and a fanfare.</p>
+    </div>
+    <div class="card">
+      <h3>Ends on a win</h3>
+      <p>A clip runs past the one-minute mark and then closes on the next
+        completed sphere, so it never cuts off mid-run.</p>
+    </div>
+    <div class="card">
+      <h3>Rendered from code</h3>
+      <p>Frames are drawn headless and piped straight into an encoder — no game
+        engine, no screen capture, no editing pass.</p>
+    </div>
+    <div class="card">
+      <h3>Hands-off publishing</h3>
+      <p>Two videos a day at randomised times, posted through TikTok's official
+        Content Posting API to the owner's own account.</p>
+    </div>
+  </div>
+
+  <h2>In short</h2>
+  <table>
+    <tr><th>Output</th><td>Vertical MP4, 720×1280, 30 fps, 60–180 s</td></tr>
+    <tr><th>Audio</th><td>Synthesised from the MIDI files placed on the server</td></tr>
+    <tr><th>Runs on</th><td>A private Python server, no display required</td></tr>
+    <tr><th>Publishes to</th><td>The owner's own TikTok account, twice a day</td></tr>
+    <tr><th>Users</th><td>One — the owner. No sign-up, no third-party access</td></tr>
+  </table>
+
+  <p><a href="./how-it-works.html">See how a video is built, step by step →</a></p>
+</main>
+
+<footer class="site">
+  <div class="bar">
+    Neon Escape — a personal project. ·
+    <a href="./terms.html">Terms of Service</a> ·
+    <a href="./privacy.html">Privacy Policy</a> ·
+    <a href="./faq.html">FAQ</a>
+  </div>
+</footer>
+</body>
+</html>

@@ -1,0 +1,115 @@
+/* Neon Escape — feuille de style commune à toutes les pages du site. */
+:root {
+  color-scheme: dark;
+  --bg: #07080f;
+  --panel: #10121d;
+  --line: #222738;
+  --text: #e9edf7;
+  --muted: #949eb8;
+  --accent: #35e07f;
+  --accent2: #4fd1ff;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 16px/1.7 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+a { color: var(--accent2); }
+img, svg { max-width: 100%; }
+
+/* ---------------------------------------------------------------- barre nav */
+header.site {
+  position: sticky; top: 0; z-index: 10;
+  background: rgba(7, 8, 15, .92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+.bar {
+  max-width: 62rem; margin: 0 auto; padding: .85rem 1.1rem;
+  display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+}
+.brand {
+  font-weight: 700; letter-spacing: -.02em; color: var(--text);
+  text-decoration: none; display: flex; align-items: center; gap: .55rem;
+}
+.brand .dot {
+  width: 12px; height: 12px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 14px var(--accent);
+}
+nav.site { margin-left: auto; display: flex; gap: 1.1rem; flex-wrap: wrap; }
+nav.site a {
+  color: var(--muted); text-decoration: none; font-size: .93rem;
+}
+nav.site a:hover, nav.site a[aria-current="page"] { color: var(--text); }
+
+/* ------------------------------------------------------------------ contenu */
+main { max-width: 62rem; margin: 0 auto; padding: 2.5rem 1.1rem 4rem; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.7rem); line-height: 1.15; margin: 0 0 .6rem;
+     letter-spacing: -.025em; }
+h2 { font-size: 1.35rem; margin: 2.6rem 0 .7rem; letter-spacing: -.01em; }
+h3 { font-size: 1.05rem; margin: 1.6rem 0 .4rem; }
+p.lead { font-size: 1.12rem; color: var(--muted); max-width: 42rem; }
+.muted { color: var(--muted); }
+code { background: #171a28; padding: .1rem .35rem; border-radius: 4px;
+       font-size: .9em; }
+
+.hero { display: grid; grid-template-columns: 1.15fr .85fr; gap: 2rem;
+        align-items: center; }
+@media (max-width: 720px) { .hero { grid-template-columns: 1fr; } }
+
+.grid { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 14px; padding: 1.1rem 1.2rem;
+}
+.card h3 { margin-top: 0; }
+.card p { margin: 0; color: var(--muted); font-size: .95rem; }
+
+ol.steps { counter-reset: s; list-style: none; padding: 0; }
+ol.steps li {
+  counter-increment: s; position: relative;
+  padding: .1rem 0 1.4rem 3rem; border-left: 1px solid var(--line);
+  margin-left: 1rem;
+}
+ol.steps li::before {
+  content: counter(s); position: absolute; left: -1rem; top: 0;
+  width: 2rem; height: 2rem; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--line);
+  display: grid; place-items: center; font-size: .85rem; color: var(--accent);
+}
+ol.steps li:last-child { border-left-color: transparent; }
+ol.steps strong { display: block; }
+
+table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .95rem; }
+th, td { text-align: left; padding: .55rem .6rem; border-bottom: 1px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+
+details {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 12px; padding: .85rem 1.1rem; margin-bottom: .7rem;
+}
+details summary { cursor: pointer; font-weight: 600; }
+details p { color: var(--muted); margin: .7rem 0 0; }
+
+footer.site {
+  border-top: 1px solid var(--line); color: var(--muted); font-size: .9rem;
+}
+footer.site .bar { padding: 1.6rem 1.1rem; display: block; }
+footer.site a { color: var(--muted); }
+
+/* --------------------------------------------------- illustration animée */
+.stage { background: #05060c; border: 1px solid var(--line); border-radius: 16px; }
+.spin-slow { transform-origin: 50% 50%; animation: spin 26s linear infinite; }
+.spin-rev  { transform-origin: 50% 50%; animation: spin 18s linear infinite reverse; }
+.spin-fast { transform-origin: 50% 50%; animation: spin 12s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.bounce { animation: bob 2.6s ease-in-out infinite; }
+@keyframes bob {
+  0%, 100% { transform: translate(0, -28px); }
+  50%      { transform: translate(16px, 30px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin-slow, .spin-rev, .spin-fast, .bounce { animation: none; }
+}
