@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FAQ — Neon Escape</title>
+<meta name="description" content="Common questions about Neon Escape: what it posts, whose account it uses, what data it touches and how the TikTok integration works.">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="site">
+  <div class="bar">
+    <a class="brand" href="./"><span class="dot"></span> Neon Escape</a>
+    <nav class="site">
+      <a href="./">Overview</a>
+      <a href="./how-it-works.html">How it works</a>
+      <a href="./gallery.html">Gallery</a>
+      <a href="./faq.html" aria-current="page">FAQ</a>
+      <a href="./terms.html">Terms</a>
+      <a href="./privacy.html">Privacy</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <h1>Frequently asked questions</h1>
+  <p class="lead">Everything below describes the tool as it actually runs today.</p>
+
+  <h2>The tool</h2>
+
+  <details open>
+    <summary>Who can use Neon Escape?</summary>
+    <p>Only its owner. There is no sign-up, no hosted service and no way for
+      anyone else to connect an account. It is a script running on one private
+      server, working on one TikTok account — the owner's own.</p>
+  </details>
+
+  <details>
+    <summary>Is the content original?</summary>
+    <p>The animation is generated entirely from code — no stock footage, no
+      screen capture, no third-party clips. The soundtrack is synthesised note
+      by note from MIDI files the owner places on the server; no audio recording
+      is reused.</p>
+  </details>
+
+  <details>
+    <summary>How long is a video?</summary>
+    <p>Between one and three minutes. A clip runs past the one-minute mark and
+      then ends on the next completed sphere, so its exact length depends on how
+      the run goes.</p>
+  </details>
+
+  <details>
+    <summary>Why does the ball's speed keep changing?</summary>
+    <p>Because it is a real simulation: gravity slows it on the way up and
+      speeds it on the way down, and each bounce loses a little energy. The only
+      correction is a floor that guarantees it can always climb back out of a
+      ring, so it never gets trapped at the bottom.</p>
+  </details>
+
+  <h2>The TikTok integration</h2>
+
+  <details>
+    <summary>Which TikTok permissions does it use, and why?</summary>
+    <p><code>user.info.basic</code> confirms which account the tool is connected
+      to, so it can be shown in the operator's logs and a wrong account is
+      caught immediately. <code>video.publish</code> posts the generated videos.
+      No other scope is requested.</p>
+  </details>
+
+  <details>
+    <summary>Does it read, download or repost anyone else's content?</summary>
+    <p>No. It never reads a feed, never downloads a video, and never touches
+      another account. The only thing it sends to TikTok is a file it just
+      rendered itself.</p>
+  </details>
+
+  <details>
+    <summary>How often does it post?</summary>
+    <p>Twice a day, at a randomised minute inside a late-morning and a
+      late-afternoon window. Publishing can be paused at any time from the
+      configuration, in which case videos are simply kept on the server.</p>
+  </details>
+
+  <details>
+    <summary>What happens to the access tokens?</summary>
+    <p>They are stored in a single file on the owner's private server and
+      refreshed automatically. They are never shared, never sent anywhere else,
+      and revoking the app from TikTok's settings invalidates them immediately.</p>
+  </details>
+
+  <h2>Operations</h2>
+
+  <details>
+    <summary>What does it run on?</summary>
+    <p>A small Python server with no display: frames are drawn in memory and
+      piped straight into an encoder. A full video renders in a few minutes on a
+      modest machine.</p>
+  </details>
+
+  <details>
+    <summary>How does the owner know it is working?</summary>
+    <p>Each step — startup, which account is connected, the track being used,
+      rendering progress, the publish result and any error — is reported to a
+      private channel the operator owns, along with the finished video.</p>
+  </details>
+
+  <details>
+    <summary>What happens when something fails?</summary>
+    <p>A failed run is retried a few minutes later, and the rendered video is
+      kept rather than discarded. If TikTok refuses an upload, the reason is
+      reported in plain language along with what to do about it.</p>
+  </details>
+
+  <p class="muted">Anything else? The project is a personal one; questions can
+    be raised through its repository.</p>
+</main>
+
+<footer class="site">
+  <div class="bar">
+    Neon Escape — a personal project. ·
+    <a href="./terms.html">Terms of Service</a> ·
+    <a href="./privacy.html">Privacy Policy</a> ·
+    <a href="./">Overview</a>
+  </div>
+</footer>
+</body>
+</html>
