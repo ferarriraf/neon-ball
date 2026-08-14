@@ -296,7 +296,10 @@ def keep_video(config, video_path):
     keep_dir = config.get("video", {}).get("keep_dir", "videos")
     os.makedirs(keep_dir, exist_ok=True)
     target = os.path.join(keep_dir, os.path.basename(video_path))
-    os.replace(video_path, target)
+    # Idempotent : appelable deux fois sans casser (une vidéo refusée par
+    # TikTok est archivée tout de suite, puis revue par le nettoyage final).
+    if os.path.abspath(video_path) != os.path.abspath(target):
+        os.replace(video_path, target)
     return target
 
 
@@ -404,8 +407,12 @@ def run_cycle(config, tiktok, state, notifier):
             f"Légende à copier :\n```\n{caption}\n```")
     finally:
         save_state(state)
+        # Toujours archiver : même publiée, la vidéo reste récupérable depuis
+        # le serveur (pour la reposter, la vérifier, ou parce que le dépôt
+        # TikTok n'a pas abouti côté appli).
         if os.path.exists(video_path):
-            os.remove(video_path)
+            kept = keep_video(config, video_path)
+            log.info("Vidéo conservée : %s", kept)
 
 
 def main():
