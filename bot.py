@@ -300,8 +300,14 @@ def keep_video(config, video_path):
 
 def send_video_to_discord(notifier, video_path, info):
     """Envoie la vidéo sur Discord, en version compressée si elle est trop lourde."""
-    if notifier.send_file(video_path, info):
-        return True
+    # Inutile de tenter l'originale si elle dépasse déjà la limite : l'envoi
+    # échoue au bout de plusieurs minutes pour rien.
+    if os.path.getsize(video_path) / 1e6 <= DISCORD_TARGET_MB:
+        if notifier.send_file(video_path, info):
+            return True
+    else:
+        log.info("Vidéo de %.0f Mo : envoi direct de la version compressée",
+                 os.path.getsize(video_path) / 1e6)
     preview = make_discord_preview(video_path)
     sent = bool(preview) and notifier.send_file(
         preview, info + "\n(version compressée : l'originale dépasse la limite Discord)")
@@ -360,16 +366,19 @@ def run_cycle(config, tiktok, state, notifier):
             "publish_id": publish_id,
             "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
-        log.info("Vidéo publiée (publish_id %s)", publish_id)
         tk = config.get("tiktok", {})
         if tk.get("post_mode") == "inbox":
-            note = ("\n📥 La vidéo est dans ta **boîte de réception TikTok** : "
-                    "ouvre l'appli, colle la légende ci-dessous et publie-la "
-                    "en public.")
+            log.info("Vidéo envoyée dans la boîte de réception TikTok "
+                     "(publish_id %s) : à publier depuis l'appli", publish_id)
+            note = ("\n📥 La vidéo t'attend dans les **notifications TikTok** "
+                    "(onglet Inbox, pas les brouillons) : tape la notification, "
+                    "colle la légende ci-dessous et publie en public.")
         elif tk.get("privacy_level", "SELF_ONLY") == "SELF_ONLY":
+            log.info("Vidéo publiée (publish_id %s)", publish_id)
             note = ("\n⚠️ Visibilité `SELF_ONLY` : visible seulement par toi. "
                     "Passe-la en public depuis l'appli (··· → Confidentialité).")
         else:
+            log.info("Vidéo publiée (publish_id %s)", publish_id)
             note = ""
         # La vidéo part aussi sur Discord : archive + légende prête à coller.
         send_video_to_discord(
