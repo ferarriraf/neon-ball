@@ -48,16 +48,21 @@ ERROR_HINTS = {
     "access_token_invalid":
         "Le jeton d'accès est invalide : supprime tokens.json et relance le "
         "bot pour refaire l'autorisation.",
-    "scope_not_authorized":
-        "Le scope video.publish n'est pas autorisé pour cette app : ajoute le "
-        "produit Content Posting API et coche le scope, puis réautorise.",
 }
 
 
-def _explain(error):
+def _explain(error, scope=None):
     """Message d'erreur TikTok enrichi d'une piste de résolution."""
     code = (error or {}).get("code", "")
     hint = ERROR_HINTS.get(code)
+    if code == "scope_not_authorized":
+        # Cas le plus fréquent : le scope a bien été ajouté à l'app, mais le
+        # jeton en cours a été délivré AVANT et ne le porte pas.
+        hint = (f"Le jeton actuel ne couvre pas le scope `{scope}`. Vérifie "
+                f"qu'il est bien coché dans l'app TikTok, puis SUPPRIME "
+                f"`tokens.json` sur le serveur et redémarre : le bot "
+                f"réaffichera un lien d'autorisation, et le nouveau jeton "
+                f"portera le scope.")
     base = f"{code} : {(error or {}).get('message', '')}".strip(" :")
     return f"{base}\n\n➡️ {hint}" if hint else base
 
@@ -127,6 +132,10 @@ class TikTokClient:
             "Content-Type": "application/json; charset=UTF-8",
         }
 
+    def required_scope(self):
+        """Scope TikTok nécessaire au mode de publication choisi."""
+        return "video.upload" if self.post_mode == "inbox" else "video.publish"
+
     # ------------------------------------------------------------ Diagnostic
 
     def creator_info(self):
@@ -142,7 +151,8 @@ class TikTokClient:
         )
         data = resp.json()
         if data.get("error", {}).get("code") not in (None, "ok"):
-            raise TikTokError(f"creator_info refusé — {_explain(data['error'])}")
+            raise TikTokError(
+                f"creator_info refusé — {_explain(data['error'], self.required_scope())}")
         return data.get("data", {})
 
     # ----------------------------------------------------------------- Upload
@@ -198,7 +208,8 @@ class TikTokClient:
                              json=payload, timeout=30)
         data = resp.json()
         if data.get("error", {}).get("code") not in (None, "ok"):
-            raise TikTokError(f"Init upload refusé — {_explain(data['error'])}")
+            raise TikTokError(
+                f"Init upload refusé — {_explain(data['error'], self.required_scope())}")
         publish_id = data["data"]["publish_id"]
         upload_url = data["data"]["upload_url"]
 
