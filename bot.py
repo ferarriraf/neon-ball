@@ -268,10 +268,12 @@ def make_discord_preview(video_path):
         audio_kbps = 64
         total_kbps = DISCORD_TARGET_MB * 8192 / duration
         video_kbps = max(180, int(total_kbps - audio_kbps))
-        out = video_path.replace(".mp4", "-discord.mp4")
+        out = video_path.replace(".mp4", "-apercu.mp4")
+        # Résolution conservée : c'est elle qui rend l'aperçu lisible. Seul le
+        # débit est réduit pour tenir dans la limite Discord.
         subprocess.run(
             [get_ffmpeg_exe(), "-y", "-v", "error", "-i", video_path,
-             "-vf", "scale=420:-2", "-c:v", "libx264", "-preset", "veryfast",
+             "-c:v", "libx264", "-preset", "veryfast",
              "-b:v", f"{video_kbps}k", "-maxrate", f"{video_kbps}k",
              "-bufsize", f"{video_kbps * 2}k", "-threads", "2",
              "-c:a", "aac", "-b:a", f"{audio_kbps}k", out],
@@ -310,7 +312,9 @@ def send_video_to_discord(notifier, video_path, info):
                  os.path.getsize(video_path) / 1e6)
     preview = make_discord_preview(video_path)
     sent = bool(preview) and notifier.send_file(
-        preview, info + "\n(version compressée : l'originale dépasse la limite Discord)")
+        preview, info + "\n\n⚠️ **Ceci est un aperçu compressé** (limite Discord). "
+        "Pour publier, télécharge l'original en pleine qualité depuis le "
+        "dossier `videos/` du serveur.")
     if preview and os.path.exists(preview):
         os.remove(preview)
     return sent

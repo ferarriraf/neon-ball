@@ -176,6 +176,9 @@ def generate_video(config, out_dir, song_path=None):
          "-f", "rawvideo", "-pix_fmt", "rgb24",
          "-s", f"{width}x{height}", "-r", str(fps), "-i", "-",
          "-c:v", "libx264",
+         # "ultrafast" produit des fichiers 4,7x plus gros à qualité égale,
+         # pour un temps de rendu total identique (c'est le dessin des images
+         # qui coûte, pas l'encodage) : "veryfast" est le bon défaut.
          "-preset", video_cfg.get("encoder_preset", "veryfast"), "-crf", "20",
          # Sans limite, x264 lance un thread par cœur de la machine HÔTE :
          # sur un petit conteneur ça explose la RAM et ffmpeg se fait tuer.
