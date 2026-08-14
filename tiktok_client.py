@@ -138,6 +138,24 @@ class TikTokClient:
 
     # ------------------------------------------------------------ Diagnostic
 
+    def user_info(self):
+        """Compte réellement connecté, via le seul scope user.info.basic.
+
+        Contrairement à creator_info, cet appel fonctionne quel que soit le
+        mode de publication : c'est le moyen sûr de vérifier que le jeton
+        pointe vers le bon compte TikTok.
+        """
+        resp = requests.get(
+            f"{API_BASE}/user/info/",
+            headers={"Authorization": f"Bearer {self._access_token()}"},
+            params={"fields": "open_id,display_name,username"},
+            timeout=30,
+        )
+        data = resp.json()
+        if data.get("error", {}).get("code") not in (None, "ok"):
+            raise TikTokError(f"user_info refusé — {_explain(data['error'], 'user.info.basic')}")
+        return data.get("data", {}).get("user", {})
+
     def creator_info(self):
         """Ce que TikTok autorise pour le compte connecté, ici et maintenant.
 
