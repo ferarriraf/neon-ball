@@ -447,28 +447,33 @@ def main():
     playlist = shuffle_playlist(config, state)
     save_state(state)
     log.info("Playlist mélangée : %d morceau(x)", len(playlist))
-    # État réel du compte vu par TikTok : dit tout de suite si la visibilité
-    # configurée est acceptée, au lieu d'attendre le refus d'un upload.
+    # Quel compte est réellement au bout du jeton ? Une vidéo déposée dans la
+    # boîte d'un autre compte que celui qu'on regarde est invisible.
+    lines = []
     try:
-        info = tiktok.creator_info()
-        options = info.get("privacy_level_options", [])
-        wanted = tk_cfg.get("privacy_level", "SELF_ONLY")
-        verdict = ("✅ publication possible" if wanted in options
-                   else f"❌ `{wanted}` non autorisée")
-        notifier.send(
-            "🔎 Compte TikTok connecté",
-            f"Compte : **{info.get('creator_nickname', '?')}**\n"
-            f"Visibilités autorisées : {', '.join(options) or 'aucune'}\n"
-            f"Configurée : `{wanted}` → {verdict}\n"
-            f"Durée max : {info.get('max_video_post_duration_sec', '?')} s",
-            GREEN if wanted in options else ORANGE)
-        log.info("creator_info : %s", info)
+        user = tiktok.user_info()
+        name = user.get("username") or user.get("display_name") or "?"
+        lines.append(f"Compte connecté : **{name}**")
+        log.info("Compte TikTok connecté : %s", user)
     except Exception as exc:
-        log.warning("creator_info indisponible : %s", exc)
-        notifier.send("⚠️ Impossible de lire l'état du compte TikTok",
-                      f"{exc}\nSi l'erreur persiste, supprime `tokens.json` "
-                      "via le gestionnaire de fichiers et redémarre pour "
-                      "refaire l'autorisation.", ORANGE)
+        lines.append(f"Compte connecté : illisible ({exc})")
+        log.warning("user_info indisponible : %s", exc)
+
+    if tk_cfg.get("post_mode") == "inbox":
+        lines.append("Mode : dépôt dans les **notifications TikTok** de ce compte")
+    else:
+        try:
+            info = tiktok.creator_info()
+            options = info.get("privacy_level_options", [])
+            wanted = tk_cfg.get("privacy_level", "SELF_ONLY")
+            lines.append(f"Visibilités autorisées : {', '.join(options) or 'aucune'}")
+            lines.append(f"Configurée : `{wanted}` → "
+                         + ("✅ publication possible" if wanted in options
+                            else f"❌ `{wanted}` non autorisée"))
+        except Exception as exc:
+            lines.append(f"creator_info indisponible : {exc}")
+            log.warning("creator_info indisponible : %s", exc)
+    notifier.send("🔎 Connexion TikTok", "\n".join(lines), GREEN)
 
     now = datetime.now(tz)
     upcoming_base, upcoming_run_at = next_slot(schedule, now, state.get("last_slot"))
