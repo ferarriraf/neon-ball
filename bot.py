@@ -343,12 +343,16 @@ def run_cycle(config, tiktok, state, notifier):
                       "Nouvel essai au prochain créneau.", ORANGE)
         return
     video_path, song_name = result
+    # Archivée AVANT toute tentative d'envoi : l'upload TikTok peut traîner
+    # plusieurs minutes, et la vidéo doit être récupérable pendant ce temps.
+    video_path = keep_video(config, video_path)
+    log.info("Vidéo conservée : %s", video_path)
     caption = next_caption(config, state, song_name)
 
     if not config.get("tiktok", {}).get("posting_enabled", False):
-        # Mode test : pas de publication TikTok. La vidéo est archivée sur le
-        # serveur (dossier jamais nettoyé) et envoyée sur Discord.
-        kept = keep_video(config, video_path)
+        # Mode test : pas de publication TikTok, la vidéo (déjà archivée)
+        # part simplement sur Discord.
+        kept = video_path
         size_mb = os.path.getsize(kept) / 1e6
         log.info("Publication TikTok en pause : vidéo conservée dans %s", kept)
         # La légende est isolée dans un bloc de code : un appui long la copie
