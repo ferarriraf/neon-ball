@@ -309,13 +309,14 @@ def run_cycle(config, tiktok, state, notifier):
         kept = keep_video(config, video_path)
         size_mb = os.path.getsize(kept) / 1e6
         log.info("Publication TikTok en pause : vidéo conservée dans %s", kept)
-        info = (f"🧪 **Vidéo de test** (publication TikTok en pause)\n"
-                f"Musique : **{song_name}** — rendu en "
-                f"{(time.time() - started) / 60:.1f} min — {size_mb:.1f} Mo\n"
-                f"Gardée sur le serveur : `{kept}`\n"
-                f"Description prévue : {caption}")
+        # La légende est isolée dans un bloc de code : un appui long la copie
+        # entièrement sur mobile, prête à coller dans TikTok.
+        info = (f"🎬 **{song_name}** — {(time.time() - started) / 60:.1f} min "
+                f"de rendu, {size_mb:.1f} Mo\n"
+                f"Sur le serveur : `{kept}`\n"
+                f"Légende à copier :\n```\n{caption}\n```")
         if not send_video_to_discord(notifier, kept, info):
-            notifier.send("🧪 Vidéo générée (trop lourde pour Discord)", info, ORANGE)
+            notifier.send("🎬 Vidéo générée (trop lourde pour Discord)", info, ORANGE)
         return
 
     notifier.send("🎞️ Vidéo générée",
@@ -331,16 +332,23 @@ def run_cycle(config, tiktok, state, notifier):
             "posted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         log.info("Vidéo publiée (publish_id %s)", publish_id)
-        privacy = config.get("tiktok", {}).get("privacy_level", "SELF_ONLY")
-        note = ("\n⚠️ Visibilité `SELF_ONLY` : la vidéo n'est visible que par toi "
-                "(limite TikTok tant que l'app n'est pas auditée)."
-                if privacy == "SELF_ONLY" else "")
-        # La vidéo publiée part aussi sur Discord : archive de ce qui est en ligne.
+        tk = config.get("tiktok", {})
+        if tk.get("post_mode") == "inbox":
+            note = ("\n📥 La vidéo est dans ta **boîte de réception TikTok** : "
+                    "ouvre l'appli, colle la légende ci-dessous et publie-la "
+                    "en public.")
+        elif tk.get("privacy_level", "SELF_ONLY") == "SELF_ONLY":
+            note = ("\n⚠️ Visibilité `SELF_ONLY` : visible seulement par toi. "
+                    "Passe-la en public depuis l'appli (··· → Confidentialité).")
+        else:
+            note = ""
+        # La vidéo part aussi sur Discord : archive + légende prête à coller.
         send_video_to_discord(
             notifier, video_path,
-            f"🚀 **Publiée sur TikTok** — {song_name}\n{caption}{note}")
-        notifier.send("🚀 Publiée sur TikTok !",
-                      f"Musique : **{song_name}**\nDescription : {caption}\n"
+            f"🚀 **Envoyée sur TikTok** — {song_name}{note}\n"
+            f"Légende à copier :\n```\n{caption}\n```")
+        notifier.send("🚀 Envoyée sur TikTok !",
+                      f"Musique : **{song_name}**\n"
                       f"publish_id : `{publish_id}`{note}", GREEN)
     except TikTokError as exc:
         log.error("Erreur TikTok : %s", exc)
@@ -350,7 +358,8 @@ def run_cycle(config, tiktok, state, notifier):
         video_path = keep_video(config, video_path)
         send_video_to_discord(
             notifier, video_path,
-            f"💾 Non publiée, gardée dans `{video_path}` — {song_name}\n{caption}")
+            f"💾 Non publiée, gardée dans `{video_path}` — {song_name}\n"
+            f"Légende à copier :\n```\n{caption}\n```")
     finally:
         save_state(state)
         if os.path.exists(video_path):
