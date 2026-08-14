@@ -240,16 +240,45 @@ def next_slot(schedule, now, last_slot):
     return base, base + timedelta(minutes=random.uniform(0, window))
 
 
+# Limite d'upload d'un webhook Discord (10 Mo) ; on vise en dessous.
+DISCORD_TARGET_MB = 8.0
+
+
+def video_duration(path):
+    from imageio_ffmpeg import get_ffmpeg_exe
+    out = subprocess.run([get_ffmpeg_exe(), "-i", path],
+                         capture_output=True, text=True).stderr
+    for line in out.splitlines():
+        if "Duration:" in line:
+            h, m, s = line.split("Duration:")[1].split(",")[0].strip().split(":")
+            return int(h) * 3600 + int(m) * 60 + float(s)
+    return 0.0
+
+
 def make_discord_preview(video_path):
-    """Version compressée (480p) pour passer sous la limite d'upload Discord."""
+    """Version compressée calibrée pour tenir sous la limite Discord.
+
+    Le débit est calculé à partir de la durée réelle : une vidéo longue est
+    donc davantage compressée, au lieu d'un CRF fixe qui laissait parfois
+    passer un fichier trop lourd (erreur 40005 « request entity too large »).
+    """
     try:
         from imageio_ffmpeg import get_ffmpeg_exe
+        duration = max(video_duration(video_path), 1.0)
+        audio_kbps = 64
+        total_kbps = DISCORD_TARGET_MB * 8192 / duration
+        video_kbps = max(180, int(total_kbps - audio_kbps))
         out = video_path.replace(".mp4", "-discord.mp4")
         subprocess.run(
             [get_ffmpeg_exe(), "-y", "-v", "error", "-i", video_path,
-             "-vf", "scale=480:-2", "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", "30", "-threads", "2", "-c:a", "aac", "-b:a", "96k", out],
+             "-vf", "scale=420:-2", "-c:v", "libx264", "-preset", "veryfast",
+             "-b:v", f"{video_kbps}k", "-maxrate", f"{video_kbps}k",
+             "-bufsize", f"{video_kbps * 2}k", "-threads", "2",
+             "-c:a", "aac", "-b:a", f"{audio_kbps}k", out],
             check=True, capture_output=True)
+        size_mb = os.path.getsize(out) / 1e6
+        log.info("Aperçu Discord : %.1f Mo (%.0f kbps sur %.0fs)",
+                 size_mb, video_kbps, duration)
         return out
     except Exception as exc:
         log.warning("Compression pour Discord échouée : %s", exc)
